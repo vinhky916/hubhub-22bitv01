@@ -133,6 +133,74 @@ export class PaymentUseCase {
     return { paymentUrl };
   }
 
+  async generatePayPalCheckout(bookingId: string, userId: string | null, frontendUrl?: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId }
+    });
+
+    if (!booking) throw new Error('Không tìm thấy đơn đặt phòng');
+    if (userId && booking.userId && booking.userId !== userId) throw new Error('Không có quyền thanh toán đơn này');
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new Error('Đơn đặt phòng đã bị hủy, không thể thanh toán');
+    }
+
+    await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: BookingStatus.PAYMENT_PROCESSING }
+    });
+    socketService.emitBookingStatusUpdate(bookingId, BookingStatus.PAYMENT_PROCESSING);
+
+    const amountVnd = Number(booking.finalPrice);
+    const paypalOrder = await this.paymentService.createPayPalOrder(amountVnd, bookingId, frontendUrl);
+
+    await this.prisma.payment.upsert({
+      where: { bookingId },
+      update: {
+        amount: booking.finalPrice,
+        method: 'PAYPAL',
+        status: PaymentStatus.PENDING,
+        transactionId: paypalOrder.orderId,
+      },
+      create: {
+        bookingId,
+        amount: booking.finalPrice,
+        method: 'PAYPAL',
+        status: PaymentStatus.PENDING,
+        transactionId: paypalOrder.orderId,
+      }
+    });
+
+    return {
+      orderId: paypalOrder.orderId,
+      approveUrl: paypalOrder.approveUrl,
+      amountVnd,
+      amountUsd: paypalOrder.amountUsd,
+      bookingId
+    };
+  }
+
+  async confirmPayPalPayment(bookingId: string, orderId?: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId }
+    });
+    if (!booking) throw new Error('Không tìm thấy đơn đặt phòng');
+
+    const paypalTxnId = orderId || bookingId;
+    const captureResult = await this.paymentService.capturePayPalOrder(paypalTxnId);
+
+    if (captureResult.success) {
+      await this.confirmBookingPayment(bookingId, 'PAYPAL', captureResult.captureId);
+      return { success: true, bookingId, captureId: captureResult.captureId };
+    } else {
+      await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: BookingStatus.PENDING }
+      });
+      socketService.emitBookingStatusUpdate(bookingId, BookingStatus.PENDING);
+      throw new Error('Xác nhận giao dịch trên PayPal thất bại');
+    }
+  }
+
   async handleVnPayCallback(queryParams: Record<string, any>) {
     const isValid = this.paymentService.validateVnPayHash(queryParams);
     if (!isValid) throw new Error('Chữ ký Hash của VNPay không hợp lệ');
@@ -176,7 +244,8 @@ export class PaymentUseCase {
   }
 
   private async confirmBookingPayment(bookingId: string, method: string, transactionId: string) {
-    const finalTransactionId = (method === 'VNPAY' || !transactionId) ? bookingId : transactionId;
+    const shortBookingCode = bookingId.length > 8 ? bookingId.substring(0, 8).toUpperCase() : bookingId.toUpperCase();
+    const finalTransactionId = (method === 'VNPAY' || method === 'PAYPAL' || !transactionId) ? shortBookingCode : transactionId;
 
     // 1. Cập nhật booking sang CONFIRMED và payment sang COMPLETED
     const booking = await this.prisma.booking.update({
@@ -213,21 +282,23 @@ export class PaymentUseCase {
     }
 
     // 2. Gửi mail kèm vé QR Code cho người dùng!
-    //try {
-      //await this.mailService.sendBookingTicketEmail({
-      //email: booking.guestEmail,
-      //guestName: booking.guestName,
-      //bookingId: booking.id,
-      //hotelName: booking.bookingItems[0]?.roomType.hotel.name || 'Khách sạn của chúng tôi',
-      //roomTypeName: booking.bookingItems[0]?.roomType.name || 'Phòng nghỉ',
-      //checkInDate: booking.checkInDate,
-      //checkOutDate: booking.checkOutDate,
-      //finalPrice: Number(booking.finalPrice)
-      //});
-      //console.log(`[PaymentUseCase] Gửi email thành công tới ${booking.guestEmail}`);
-    //} catch (mailError) {
-      //console.error('[PaymentUseCase] Lỗi gửi email vé:', mailError);
-    //}
+    try {
+      if (booking.guestEmail) {
+        await this.mailService.sendBookingTicketEmail({
+          email: booking.guestEmail,
+          guestName: booking.guestName,
+          bookingId: booking.id,
+          hotelName: booking.bookingItems[0]?.roomType.hotel.name || 'Khách sạn của chúng tôi',
+          roomTypeName: booking.bookingItems[0]?.roomType.name || 'Phòng nghỉ',
+          checkInDate: booking.checkInDate,
+          checkOutDate: booking.checkOutDate,
+          finalPrice: Number(booking.finalPrice)
+        });
+        console.log(`[PaymentUseCase] Gửi email vé điện tử thành công tới ${booking.guestEmail}`);
+      }
+    } catch (mailError) {
+      console.error('[PaymentUseCase] Lỗi gửi email vé:', mailError);
+    }
   }
 }
 

@@ -4,6 +4,26 @@ import { HotelStatus, Role } from '@prisma/client';
 import axios from 'axios';
 import socketService from '../../infrastructure/services/socket.service';
 
+function removeVietnameseTones(str: string): string {
+  if (!str) return '';
+  let result = str;
+  result = result.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, 'a');
+  result = result.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, 'e');
+  result = result.replace(/ì|í|ị|ỉ|ĩ/g, 'i');
+  result = result.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, 'o');
+  result = result.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, 'u');
+  result = result.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, 'y');
+  result = result.replace(/đ/g, 'd');
+  result = result.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, 'A');
+  result = result.replace(/È|É|Ẹ|Ẻ|Ẽ|Ê|Ề|Ế|Ệ|Ể|Ễ/g, 'E');
+  result = result.replace(/Ì|Í|Ị|Ỉ|Ĩ/g, 'I');
+  result = result.replace(/Ò|Ó|Ọ|Ỏ|Õ|Ô|Ồ|Ố|Ộ|Ổ|Ỗ|Ơ|Ờ|Ớ|Ợ|Ở|Ỡ/g, 'O');
+  result = result.replace(/Ù|Ú|Ụ|Ủ|Ũ|Ư|Ừ|Ứ|Ự|Ử|Ữ/g, 'U');
+  result = result.replace(/Ỳ|Ý|Ỵ|Ỷ|Ỹ/g, 'Y');
+  result = result.replace(/Đ/g, 'D');
+  return result;
+}
+
 export class HotelUseCase {
   public async createHotel(ownerId: string, data: any) {
     const {
@@ -11,6 +31,7 @@ export class HotelUseCase {
       description,
       address,
       categoryId,
+      propertyType,
       provinceId,
       districtId,
       wardId,
@@ -41,6 +62,7 @@ export class HotelUseCase {
       data: {
         ownerId,
         categoryId,
+        propertyType: propertyType || 'HOTEL',
         name,
         description,
         address,
@@ -82,6 +104,7 @@ export class HotelUseCase {
       description,
       address,
       categoryId,
+      propertyType,
       provinceId,
       districtId,
       wardId,
@@ -134,6 +157,7 @@ export class HotelUseCase {
         description,
         address,
         categoryId,
+        propertyType: propertyType || undefined,
         provinceId,
         districtId,
         wardId,
@@ -201,65 +225,67 @@ export class HotelUseCase {
       hotel.roomTypes.map(async (rt) => {
         let price = parseFloat(rt.basePrice.toString());
         let availableCount = rt.rooms.length;
+        let bookedQuantity = 0;
         let isBlocked = false;
 
-        if (checkIn && checkOut) {
-          const start = new Date(checkIn);
-          const end = new Date(checkOut);
+        const start = checkIn ? new Date(checkIn) : new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = checkOut ? new Date(checkOut) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
-          // 1. Kiểm tra chặn phòng và giá động trong khoảng thời gian lưu trú
-          const calendarOverrides = await prisma.roomPriceCalendar.findMany({
-            where: {
-              roomTypeId: rt.id,
-              date: {
-                gte: start,
-                lt: end,
-              },
+        // 1. Kiểm tra chặn phòng và giá động trong khoảng thời gian lưu trú
+        const calendarOverrides = await prisma.roomPriceCalendar.findMany({
+          where: {
+            roomTypeId: rt.id,
+            date: {
+              gte: start,
+              lt: end,
             },
-          });
+          },
+        });
 
-          // Nếu có bất cứ ngày nào bị chặn, xem như phòng không khả dụng
-          if (calendarOverrides.some((c) => c.isBlocked)) {
-            isBlocked = true;
-            availableCount = 0;
-          }
+        // Nếu có bất cứ ngày nào bị chặn, xem như phòng không khả dụng
+        if (calendarOverrides.some((c) => c.isBlocked)) {
+          isBlocked = true;
+          availableCount = 0;
+        }
 
-          // Tính tổng giá các ngày
-          let totalPrice = 0;
-          let days = 0;
-          for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
-            const override = calendarOverrides.find(
-              (c) => c.date.toISOString().split('T')[0] === dateStr
-            );
-            
-            totalPrice += override ? parseFloat(override.price.toString()) : parseFloat(rt.basePrice.toString());
-            days++;
-          }
-          price = days > 0 ? totalPrice / days : price; // Giá trung bình mỗi đêm
+        // Tính tổng giá các ngày
+        let totalPrice = 0;
+        let days = 0;
+        for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split('T')[0];
+          const override = calendarOverrides.find(
+            (c) => c.date.toISOString().split('T')[0] === dateStr
+          );
+          
+          totalPrice += override ? parseFloat(override.price.toString()) : parseFloat(rt.basePrice.toString());
+          days++;
+        }
+        price = days > 0 ? totalPrice / days : price; // Giá trung bình mỗi đêm
 
-          // 2. Tính số lượng phòng đã bị đặt trong khoảng thời gian này
-          const overlappingBookings = await prisma.booking.findMany({
-            where: {
-              status: {
-                in: ['PENDING', 'PAYMENT_PROCESSING', 'CONFIRMED', 'CHECKED_IN'],
-              },
-              checkInDate: { lt: end },
-              checkOutDate: { gt: start },
-              bookingItems: {
-                some: { roomTypeId: rt.id },
-              },
+        // 2. Tính số lượng phòng đã bị đặt trong khoảng thời gian này
+        const overlappingBookings = await prisma.booking.findMany({
+          where: {
+            status: {
+              in: ['PENDING', 'PAYMENT_PROCESSING', 'CONFIRMED', 'CHECKED_IN'],
             },
-            include: {
-              bookingItems: true,
+            checkInDate: { lt: end },
+            checkOutDate: { gt: start },
+            bookingItems: {
+              some: { roomTypeId: rt.id },
             },
-          });
+          },
+          include: {
+            bookingItems: true,
+          },
+        });
 
-          const bookedQuantity = overlappingBookings.reduce((sum, b) => {
-            const item = b.bookingItems.find((i) => i.roomTypeId === rt.id);
-            return sum + (item ? item.quantity : 0);
-          }, 0);
+        bookedQuantity = overlappingBookings.reduce((sum, b) => {
+          const item = b.bookingItems.find((i) => i.roomTypeId === rt.id);
+          return sum + (item ? item.quantity : 0);
+        }, 0);
 
+        if (!isBlocked) {
           availableCount = Math.max(0, rt.rooms.length - bookedQuantity);
         }
 
@@ -275,6 +301,8 @@ export class HotelUseCase {
           amenities: rt.amenities,
           images: rt.images,
           availableRooms: availableCount,
+          bookedRooms: bookedQuantity,
+          totalRooms: rt.rooms.length,
           isBlocked,
           rooms: rt.rooms,
           includeBreakfast: rt.includeBreakfast,
@@ -311,6 +339,7 @@ export class HotelUseCase {
       districtId,
       wardId,
       categoryId,
+      propertyType,
       starRating,
       priceMin,
       priceMax,
@@ -332,13 +361,15 @@ export class HotelUseCase {
     // Xây dựng các điều kiện WHERE cho Prisma
     const where: any = {};
 
+    if (ownerId) {
+      where.ownerId = ownerId;
+    }
+
     if (status) {
       if (status !== 'ALL') {
         where.status = status;
       }
-    } else if (ownerId) {
-      where.ownerId = ownerId;
-    } else {
+    } else if (!ownerId) {
       where.status = HotelStatus.APPROVED;
     }
 
@@ -346,6 +377,7 @@ export class HotelUseCase {
     if (districtId) where.districtId = districtId;
     if (wardId) where.wardId = wardId;
     if (categoryId) where.categoryId = categoryId;
+    if (propertyType && propertyType !== 'ALL') where.propertyType = propertyType;
     
     if (starRating && !isNaN(parseInt(starRating))) {
       where.starRating = parseInt(starRating);
@@ -354,14 +386,33 @@ export class HotelUseCase {
     // Tìm kiếm theo từ khóa tên, mô tả, địa chỉ, tỉnh/thành, quận/huyện, phường/xã
     if (searchQuery && typeof searchQuery === 'string' && searchQuery.trim() !== '') {
       const q = searchQuery.trim();
-      where.OR = [
+      const normQ = removeVietnameseTones(q.toLowerCase());
+
+      const allProvinces = await prisma.province.findMany({ select: { id: true, name: true } });
+      const matchedProvinceIds = allProvinces
+        .filter(p => {
+          const pNorm = removeVietnameseTones(p.name.toLowerCase());
+          return pNorm.includes(normQ) || normQ.includes(pNorm);
+        })
+        .map(p => p.id);
+
+      const ORConditions: any[] = [
         { name: { contains: q, mode: 'insensitive' } },
         { description: { contains: q, mode: 'insensitive' } },
         { address: { contains: q, mode: 'insensitive' } },
-        { province: { name: { contains: q, mode: 'insensitive' } } },
-        { district: { name: { contains: q, mode: 'insensitive' } } },
-        { ward: { name: { contains: q, mode: 'insensitive' } } },
       ];
+
+      if (matchedProvinceIds.length > 0) {
+        ORConditions.push({ provinceId: { in: matchedProvinceIds } });
+      } else {
+        ORConditions.push(
+          { province: { name: { contains: q, mode: 'insensitive' } } },
+          { district: { name: { contains: q, mode: 'insensitive' } } },
+          { ward: { name: { contains: q, mode: 'insensitive' } } }
+        );
+      }
+
+      where.OR = ORConditions;
     }
 
     // Hỗ trợ amenityIds gửi lên dạng string đơn lẻ hoặc array
@@ -374,14 +425,17 @@ export class HotelUseCase {
       }
     }
 
-    // Lọc theo tên tiện ích để tránh lỗi ép kiểu UUID trong Postgres
+    // Lọc theo tên/id tiện ích linh hoạt (hỗ trợ tìm cả tên tiếng Việt một phần)
     if (parsedAmenityIds.length > 0) {
       where.amenities = {
         some: {
           amenity: {
-            name: {
-              in: parsedAmenityIds,
-            },
+            OR: parsedAmenityIds.map(nameOrId => ({
+              OR: [
+                { id: nameOrId },
+                { name: { contains: nameOrId, mode: 'insensitive' } }
+              ]
+            }))
           },
         },
       };
@@ -535,6 +589,7 @@ export class HotelUseCase {
           ward: hotel.ward.name,
           wardId: hotel.wardId,
           starRating: hotel.starRating,
+          propertyType: hotel.propertyType,
           status: hotel.status,
           rejectReason: hotel.rejectReason,
           owner: hotel.owner,

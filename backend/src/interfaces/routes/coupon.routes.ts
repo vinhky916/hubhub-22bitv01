@@ -22,4 +22,10 @@ router.delete(
   couponController.delete
 );
 
+router.patch(
+  '/:id/toggle',
+  requireAuth,
+  couponController.toggle
+);
+
 export default router;

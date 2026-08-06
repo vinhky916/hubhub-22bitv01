@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { setSearchCriteria } from '../store/slices/searchSlice';
+import { setSearchCriteria, getLocalDateString } from '../store/slices/searchSlice';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
+import { formatDateVN, formatFullDateVN } from '../utils/date';
+import { useModal } from '../components/common/ModalContext';
 import { socket } from '../core/socket/socket';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';
 import {
@@ -16,6 +18,7 @@ import {
   Utensils,
   GlassWater,
   User,
+  Users,
   Building2,
   ChevronDown,
   ChevronLeft,
@@ -39,7 +42,9 @@ import {
   Clock,
   Ruler,
   Flame,
-  Footprints
+  Footprints,
+  Check,
+  ThumbsUp
 } from 'lucide-react';
 import { formatPrice } from '../utils/price';
 import L from 'leaflet';
@@ -103,7 +108,7 @@ const RoomDetailsModal = ({
       {/* Backdrop click close */}
       <div className="absolute inset-0 z-0" onClick={onClose} />
 
-      <div className="bg-white rounded-t-2xl md:rounded-3xl overflow-hidden shadow-2xl w-full max-w-[1000px] h-[100vh] md:h-[85vh] flex flex-col relative z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-t-2xl md:rounded-3xl overflow-hidden shadow-2xl w-full max-w-[1150px] lg:max-w-[1250px] h-[100vh] md:h-[90vh] flex flex-col relative z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* Close Button */}
         <button
           type="button"
@@ -188,7 +193,7 @@ const RoomDetailsModal = ({
                   </div>
                   <div className="flex items-center gap-2">
                     <Bed className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span>{room.bedCount} {language === 'vi' ? 'giường đôi' : 'large beds'}</span>
+                    <span>{room.bedCount} {room.bedType || (language === 'vi' ? 'giường đôi' : 'large beds')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-slate-400 shrink-0" />
@@ -270,6 +275,7 @@ interface RoomTypeDetail {
   calculatedPrice: number;
   capacity: number;
   bedCount: number;
+  bedType?: string | null;
   size: number | null;
   amenities: string[];
   images: { url: string }[];
@@ -291,6 +297,9 @@ interface ReviewDetail {
   ratingValue: number;
   ratingOverall: number;
   comment: string;
+  ownerReply?: string | null;
+  ownerRepliedAt?: string | null;
+  likesCount?: number;
   createdAt: string;
   user: { fullName: string; avatarUrl: string | null };
 }
@@ -408,28 +417,7 @@ const removeVietnameseTones = (str: string) => {
   return str;
 };
 
-const translateCategoryName = (name: string, lang: string) => {
-  if (!name) return '';
-  if (lang === 'vi') return name;
-  switch (name.toLowerCase()) {
-    case 'khách sạn':
-    case 'hotel':
-      return 'Hotel';
-    case 'khu nghỉ dưỡng':
-    case 'resort':
-      return 'Resort';
-    case 'biệt thự / villa':
-    case 'villa':
-      return 'Villa';
-    case 'căn hộ':
-    case 'apartment':
-      return 'Apartment';
-    case 'homestay':
-      return 'Homestay';
-    default:
-      return name;
-  }
-};
+
 
 const translateAddress = (address: string, district: string, province: string, lang: string) => {
   if (lang === 'vi') {
@@ -657,6 +645,7 @@ export const HotelDetail: React.FC = () => {
   const searchCriteria = useSelector((state: RootState) => state.search);
   const { language, currency } = useSelector((state: RootState) => state.settings);
   const t = detailTranslations[language];
+  const { showAlert } = useModal();
 
   const [hotel, setHotel] = useState<HotelDetailData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -666,6 +655,23 @@ export const HotelDetail: React.FC = () => {
   const [activeImageIndices, setActiveImageIndices] = useState<Record<string, number>>({});
   const [selectedRoomForModal, setSelectedRoomForModal] = useState<RoomTypeDetail | null>(null);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
+  const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
+  const [galleryActiveIndex, setGalleryActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isGalleryModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsGalleryModalOpen(false);
+      if (e.key === 'ArrowLeft') {
+        setGalleryActiveIndex(prev => (prev === 0 ? (hotel?.images.length || 1) - 1 : prev - 1));
+      }
+      if (e.key === 'ArrowRight') {
+        setGalleryActiveIndex(prev => (prev + 1) % (hotel?.images.length || 1));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isGalleryModalOpen, hotel]);
 
   const [activeTab, setActiveTab] = useState('overview-section');
 
@@ -784,7 +790,7 @@ export const HotelDetail: React.FC = () => {
         setRatingValue(10);
         setShowReviewForm(false);
 
-        alert(language === 'vi' ? 'Cảm ơn bạn đã gửi đánh giá!' : 'Thank you for your review!');
+        await showAlert(language === 'vi' ? 'Cảm ơn bạn đã gửi đánh giá!' : 'Thank you for your review!', { type: 'success', title: language === 'vi' ? 'Thành công' : 'Success' });
       }
     } catch (err: any) {
       console.error('[Submit Review Error]:', err);
@@ -794,6 +800,27 @@ export const HotelDetail: React.FC = () => {
       );
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const [likedReviewIds, setLikedReviewIds] = useState<string[]>([]);
+
+  const handleLikeReview = async (reviewId: string) => {
+    if (likedReviewIds.includes(reviewId)) return;
+    setLikedReviewIds((prev) => [...prev, reviewId]);
+    setHotel((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        reviews: prev.reviews.map((r) =>
+          r.id === reviewId ? { ...r, likesCount: (r.likesCount || 0) + 1 } : r
+        ),
+      };
+    });
+    try {
+      await apiClient.post(`/hotels/reviews/${reviewId}/like`);
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -821,6 +848,12 @@ export const HotelDetail: React.FC = () => {
   const [month1, setMonth1] = useState(today.getMonth());
   const [year1, setYear1] = useState(today.getFullYear());
 
+  const month2 = month1 === 11 ? 0 : month1 + 1;
+  const year2 = month1 === 11 ? year1 + 1 : year1;
+
+  const [recentSearches, setRecentSearches] = useState<any[]>([]);
+  const [suggestedHotels, setSuggestedHotels] = useState<any[]>([]);
+
   const monthNames = [
     'tháng 1', 'tháng 2', 'tháng 3', 'tháng 4', 'tháng 5', 'tháng 6',
     'tháng 7', 'tháng 8', 'tháng 9', 'tháng 10', 'tháng 11', 'tháng 12'
@@ -829,6 +862,8 @@ export const HotelDetail: React.FC = () => {
   const [provincesList, setProvincesList] = useState<ProvinceItem[]>(VIETNAM_PROVINCES);
   const [hotelCoupons, setHotelCoupons] = useState<any[]>([]);
   const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
+
+
 
   useEffect(() => {
     if (id) {
@@ -886,33 +921,16 @@ export const HotelDetail: React.FC = () => {
     fetchProvinces();
   }, []);
 
-  const getProvinceName = (id: string) => {
-    const prov = provincesList.find((p) => p.id === id);
-    return prov ? prov.name : '';
-  };
-
-  // Đồng bộ hóa destInputText ban đầu theo provinceId hoặc thông tin khách sạn khi load
+  // Khi load trang chi tiết khách sạn, đặt ô nhập địa điểm trong thanh tìm kiếm thành tên khách sạn
   useEffect(() => {
-    if (provinceId) {
-      const pName = getProvinceName(provinceId);
-      if (pName) {
-        setDestInputText(translateProvinceName(pName, language));
-      }
-    }
-  }, [provinceId, language]);
-
-  useEffect(() => {
-    if (hotel) {
+    if (hotel && hotel.name) {
+      setDestInputText(hotel.name);
       const pId = (hotel as any).provinceId || (hotel.province as any)?.id || '';
       if (pId && !provinceId) {
         setProvinceId(pId);
       }
-      const provName = (hotel.province as any)?.name || getProvinceName(pId) || hotel.address;
-      if (provName && (!destInputText || !provinceId)) {
-        setDestInputText(translateProvinceName(provName, language));
-      }
     }
-  }, [hotel, language]);
+  }, [hotel]);
 
   // Date list utilities cho Popover lịch
   const getDaysInMonth = (year: number, month: number) => {
@@ -969,6 +987,7 @@ export const HotelDetail: React.FC = () => {
       if (dateStr >= checkIn) {
         setCheckOut(dateStr);
         setHoveredDate(null);
+        setShowDatePopover(false);
       } else {
         setCheckIn(dateStr);
         setHoveredDate(null);
@@ -984,19 +1003,19 @@ export const HotelDetail: React.FC = () => {
 
   const formatDateDisplay = () => {
     if (checkIn && checkOut) {
-      const inDate = new Date(checkIn);
-      const outDate = new Date(checkOut);
+      const inDate = new Date(checkIn + 'T00:00:00');
+      const outDate = new Date(checkOut + 'T00:00:00');
       const daysOfWeek = language === 'vi'
-        ? ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
+        ? ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
         : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
       const inStr = language === 'vi'
-        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} thg ${inDate.getMonth() + 1}`
+        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} tháng ${inDate.getMonth() + 1}`
         : `${daysOfWeek[inDate.getDay()]}, ${inDate.toLocaleString('en-US', { month: 'short' })} ${inDate.getDate()}`;
       const outStr = language === 'vi'
-        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} thg ${outDate.getMonth() + 1}`
+        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} tháng ${outDate.getMonth() + 1}`
         : `${daysOfWeek[outDate.getDay()]}, ${outDate.toLocaleString('en-US', { month: 'short' })} ${outDate.getDate()}`;
-      return `${inStr} — ${outStr}`;
+      return `${inStr} – ${outStr}`;
     }
     return language === 'vi' ? 'Nhận phòng — Trả phòng' : 'Check-in — Check-out';
   };
@@ -1009,6 +1028,86 @@ export const HotelDetail: React.FC = () => {
       return true;
     }
     return false;
+  };
+
+  // Load recent searches
+  useEffect(() => {
+    if (showDestPopover) {
+      const stored = localStorage.getItem('recent_searches');
+      if (stored) {
+        try {
+          const list = JSON.parse(stored);
+          if (Array.isArray(list)) {
+            const seen = new Set();
+            const cleaned = list.filter((item: any) => {
+              const key = item.provinceId
+                ? `prov-${item.provinceId}`
+                : `query-${(item.searchQuery || '').toLowerCase()}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            setRecentSearches(cleaned);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  }, [showDestPopover]);
+
+  // Dynamic autocomplete query
+  useEffect(() => {
+    if (!destInputText.trim()) {
+      setSuggestedHotels([]);
+      return;
+    }
+    const delayDebounce = setTimeout(async () => {
+      const isProvince = provincesList.some(p => p.name.toLowerCase() === destInputText.trim().toLowerCase());
+      if (isProvince) {
+        setSuggestedHotels([]);
+        return;
+      }
+      try {
+        const res = await apiClient.get('/hotels', {
+          params: { limit: 100 }
+        });
+        if (res.data.success) {
+          const allHotels = res.data.data.hotels || [];
+          const normInput = removeVietnameseTones(destInputText.toLowerCase()).trim();
+          const filtered = allHotels.filter((hotel: any) => {
+            const normName = removeVietnameseTones(hotel.name.toLowerCase());
+            const normAddress = removeVietnameseTones(hotel.address.toLowerCase());
+            const normProvince = removeVietnameseTones(hotel.province.toLowerCase());
+            return normName.includes(normInput) || normAddress.includes(normInput) || normProvince.includes(normInput);
+          });
+          setSuggestedHotels(filtered.slice(0, 5));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounce);
+  }, [destInputText, provincesList]);
+
+  const handleSelectRecentSearch = (searchItem: any) => {
+    setProvinceId(searchItem.provinceId);
+    setDestInputText(searchItem.provinceName);
+    setCheckIn(searchItem.checkIn || '');
+    setCheckOut(searchItem.checkOut || '');
+    setAdults(searchItem.adults || 2);
+    setChildren(searchItem.children || 0);
+    setRooms(searchItem.rooms || 1);
+    setShowDestPopover(false);
+  };
+
+  const formatSearchDatesHelper = (start: string, end: string) => {
+    if (start && end) {
+      const sDate = new Date(start);
+      const eDate = new Date(end);
+      return `${sDate.getDate()} thg ${sDate.getMonth() + 1} – ${eDate.getDate()} thg ${eDate.getMonth() + 1}`;
+    }
+    return 'Lịch linh hoạt';
   };
 
   const handleDestInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1032,8 +1131,12 @@ export const HotelDetail: React.FC = () => {
       return;
     }
 
+    const queryNorm = removeVietnameseTones(destInputText.trim().toLowerCase());
     const matchedProv = provincesList.find(
-      (p) => p.name.toLowerCase() === destInputText.trim().toLowerCase()
+      (p) =>
+        p.name.toLowerCase() === destInputText.trim().toLowerCase() ||
+        removeVietnameseTones(p.name.toLowerCase()) === queryNorm ||
+        p.keywords?.some((k) => removeVietnameseTones(k.toLowerCase()) === queryNorm || queryNorm.includes(removeVietnameseTones(k.toLowerCase())))
     );
 
     let finalProvinceId = provinceId;
@@ -1051,24 +1154,68 @@ export const HotelDetail: React.FC = () => {
       guests: adults + children
     }));
 
+    if (finalProvinceId || finalSearchQuery) {
+      const newSearch = {
+        provinceId: finalProvinceId,
+        provinceName: destInputText.trim(),
+        searchQuery: finalSearchQuery,
+        checkIn,
+        checkOut,
+        adults,
+        children,
+        rooms
+      };
+      const stored = localStorage.getItem('recent_searches');
+      let list = stored ? JSON.parse(stored) : [];
+      list = list.filter((item: any) => {
+        if (finalProvinceId && item.provinceId === finalProvinceId) return false;
+        if (finalSearchQuery && item.searchQuery && item.searchQuery.toLowerCase() === finalSearchQuery.toLowerCase()) return false;
+        return true;
+      });
+      list.unshift(newSearch);
+      list = list.slice(0, 3);
+      localStorage.setItem('recent_searches', JSON.stringify(list));
+    }
+
+    // Kiểm tra xem người dùng đang tìm kiếm trên cùng Tỉnh/Thành hoặc cùng Khách sạn hiện tại
+    const isSameDestinationOrHotel = hotel && (
+      destInputText.trim().toLowerCase() === hotel.name.toLowerCase() ||
+      (hotel.province && removeVietnameseTones(destInputText.trim().toLowerCase()).includes(removeVietnameseTones(hotel.province.name.toLowerCase()))) ||
+      ((hotel as any).provinceId && finalProvinceId === (hotel as any).provinceId) ||
+      !finalProvinceId
+    );
+
+    if (isSameDestinationOrHotel) {
+      fetchDetail();
+      setShowDestPopover(false);
+      setShowDatePopover(false);
+      setShowGuestPopover(false);
+      return;
+    }
+
     navigate('/search');
   };
 
   const matchedProvinces = destInputText.trim()
     ? provincesList.filter((p) => {
-        const normInput = removeVietnameseTones(destInputText.trim().toLowerCase());
-        const normName = removeVietnameseTones(p.name.toLowerCase());
-        if (normName.includes(normInput) || normInput.includes(normName)) return true;
-        return p.keywords?.some((k) => {
-          const normK = removeVietnameseTones(k.toLowerCase().trim());
-          if (!normK) return false;
-          if (normK === normInput) return true;
-          if (normK.length >= 3 && normInput.includes(normK)) return true;
-          if (normK.includes(normInput)) return true;
-          return false;
-        });
-      })
+      const normInput = removeVietnameseTones(destInputText.trim().toLowerCase());
+      const normName = removeVietnameseTones(p.name.toLowerCase());
+      if (normName.includes(normInput) || normInput.includes(normName)) return true;
+      return p.keywords?.some((k) => {
+        const normK = removeVietnameseTones(k.toLowerCase().trim());
+        if (!normK) return false;
+        if (normK === normInput) return true;
+        if (normK.length >= 3 && normInput.includes(normK)) return true;
+        if (normK.includes(normInput)) return true;
+        return false;
+      });
+    })
     : [];
+
+  const combinedSuggestions = [
+    ...matchedProvinces.map((p) => ({ ...p, type: 'province' as const })),
+    ...suggestedHotels.map((h) => ({ ...h, type: 'hotel' as const }))
+  ];
 
   const getNightsCount = () => {
     if (!checkIn || !checkOut) return 1;
@@ -1198,7 +1345,7 @@ export const HotelDetail: React.FC = () => {
 
   useEffect(() => {
     fetchDetail();
-  }, [id, checkIn, checkOut]);
+  }, [id]);
 
   useEffect(() => {
     if (id) {
@@ -1259,7 +1406,7 @@ export const HotelDetail: React.FC = () => {
       // Internet & Parking
       if (lower.includes('wifi') || lower.includes('internet')) return 'Free Wifi';
       if (lower.includes('bãi đỗ xe') || lower.includes('chỗ đỗ xe') || lower.includes('bãi đậu xe') || lower.includes('parking')) return 'Parking Space';
-      
+
       // Leisure & Facilities
       if (lower === 'hồ bơi' || lower === 'swimming pool') return 'Swimming Pool';
       if (lower.includes('gym') || lower.includes('thể hình') || lower.includes('fitness')) return 'Fitness Center / Gym';
@@ -1267,7 +1414,7 @@ export const HotelDetail: React.FC = () => {
       if (lower.includes('nhà hàng') || lower.includes('dining') || lower.includes('restaurant')) return 'Restaurant & Dining';
       if (lower.includes('quầy bar') || lower.includes('lounge') || lower.includes('bar')) return 'Bar & Lounge';
       if (lower.includes('dịch vụ phòng') || lower.includes('room service')) return 'Room Service';
-      
+
       // Bathroom
       if (lower === 'giấy vệ sinh') return 'Toilet Paper';
       if (lower === 'khăn tắm') return 'Towels';
@@ -1279,23 +1426,23 @@ export const HotelDetail: React.FC = () => {
       if (lower === 'máy sấy tóc') return 'Hairdryer';
       if (lower === 'vòi sen' || lower === 'vòi hoa sen') return 'Shower';
       if (lower === 'bồn tắm') return 'Bathtub';
-      
+
       // Bedroom
       if (lower.includes('khăn trải giường') || lower.includes('ga trải giường')) return 'Bed Sheets / Linens';
       if (lower.includes('tủ quần áo') || lower.includes('phòng để quần áo')) return 'Wardrobe / Closet';
-      
+
       // Outdoors
       if (lower.includes('bàn ghế ngoài trời')) return 'Outdoor Furniture';
       if (lower.includes('sân thượng') || lower.includes('hiên')) return 'Terrace / Patio';
       if (lower === 'sân vườn' || lower === 'vườn') return 'Garden';
       if (lower === 'ban công') return 'Balcony';
-      
+
       // Kitchen
       if (lower.includes('bếp chung')) return 'Shared Kitchen';
       if (lower.includes('ấm đun nước')) return 'Electric Kettle';
       if (lower.includes('lò vi sóng')) return 'Microwave';
       if (lower === 'tủ lạnh' || lower === 'fridge' || lower === 'refrigerator') return 'Refrigerator';
-      
+
       // Room details
       if (lower.includes('giá treo')) return 'Clothes Rack';
       if (lower.includes('két sắt') || lower.includes('két an toàn') || lower.includes('két sắt an toàn')) return 'Safety Deposit Box';
@@ -1304,27 +1451,27 @@ export const HotelDetail: React.FC = () => {
       if (lower === 'tivi' || lower === 'tv') return 'TV';
       if (lower.includes('tv màn hình phẳng') || lower.includes('tivi màn hình phẳng')) return 'Flat-screen TV';
       if (lower.includes('truyền hình cáp')) return 'Cable Channels';
-      
+
       // Services
       if (lower.includes('dọn phòng hàng ngày')) return 'Daily Housekeeping';
       if (lower.includes('sảnh chung')) return 'Shared Lounge / TV Area';
       if (lower.includes('lễ tân 24 giờ') || lower.includes('lễ tân')) return '24-hour Front Desk';
       if (lower.includes('trông trẻ')) return 'Babysitting Services';
       if (lower.includes('nhận/trả phòng riêng')) return 'Private Check-in / Check-out';
-      
+
       // Security
       if (lower.includes('bình chữa cháy')) return 'Fire Extinguisher';
       if (lower.includes('cctv bên ngoài')) return 'CCTV Outside Property';
       if (lower.includes('cctv trong khu vực chung')) return 'CCTV in Common Areas';
       if (lower.includes('báo cháy') || lower.includes('báo động')) return 'Smoke Alarms';
       if (lower.includes('bảo vệ 24/7')) return '24/7 Security';
-      
+
       // General
       if (lower.includes('thang máy')) return 'Elevator';
       if (lower.includes('phòng gia đình')) return 'Family Rooms';
       if (lower.includes('không hút thuốc')) return 'Non-smoking Rooms';
       if (lower.includes('cấm hút thuốc')) return 'All-inclusive Non-smoking';
-      
+
       // Languages
       if (lower.includes('tiếng anh')) return 'English';
       if (lower.includes('tiếng việt')) return 'Vietnamese';
@@ -1334,6 +1481,17 @@ export const HotelDetail: React.FC = () => {
   };
 
   const handleBookRoom = (roomTypeId: string, ratePlanId?: string) => {
+    if (!isLoggedIn) {
+      showAlert(
+        language === 'vi'
+          ? 'Vui lòng đăng nhập tài khoản để tiến hành đặt phòng.'
+          : 'Please login to proceed with room booking.',
+        { title: language === 'vi' ? 'Yêu cầu đăng nhập' : 'Login Required', type: 'info' }
+      );
+      navigate('/login', { state: { from: `/hotel/${id}` } });
+      return;
+    }
+
     const key = ratePlanId ? `${roomTypeId}_${ratePlanId}` : roomTypeId;
     navigate('/checkout', {
       state: {
@@ -1372,7 +1530,6 @@ export const HotelDetail: React.FC = () => {
 
   // Airbnb style photos layout
   const mainPhoto = hotel.images[0]?.url || 'https://images.unsplash.com/photo-1566073771259-6a8506099945';
-  const subPhotos = hotel.images.slice(1, 5);
 
   // Tính điểm đánh giá theo tiêu chí mẫu nếu chưa lưu chi tiết
   const criteriaScores = hotel.reviews.length > 0 ? {
@@ -1526,6 +1683,8 @@ export const HotelDetail: React.FC = () => {
 
   return (
     <div>
+
+
       {/* Banner & Search bar section wrapper */}
       <div className="relative">
         {/* Hero Section */}
@@ -1556,7 +1715,7 @@ export const HotelDetail: React.FC = () => {
             className="bg-[#febb02] p-[4px] rounded-lg flex flex-col lg:flex-row gap-[4px] shadow-[0_10px_25px_rgba(0,0,0,0.1)] w-full items-stretch"
           >
             {/* Destination Panel - Interactive text input */}
-            <div className={`flex-grow lg:flex-[2.4] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
+            <div className={`flex-grow lg:flex-[3.0] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
               <Building2 className={`w-6 h-6 shrink-0 ${destError ? 'text-red-500 animate-bounce' : 'text-slate-400'}`} />
               <input
                 type="text"
@@ -1587,11 +1746,42 @@ export const HotelDetail: React.FC = () => {
               {showDestPopover && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowDestPopover(false)} />
-                  <div className="absolute top-full left-0 mt-2 w-full sm:w-[400px] bg-white rounded-lg shadow-2xl border border-slate-100 p-4 z-40 text-slate-800 max-h-80 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-2 w-full sm:w-[400px] bg-white rounded-lg shadow-2xl border border-slate-100 p-4 z-40 text-slate-800 max-h-96 overflow-y-auto">
                     <div className="space-y-4 text-left">
                       {!destInputText.trim() ? (
                         <div>
-                          <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider mb-2">{language === 'vi' ? 'Điểm đến phổ biến' : 'Popular destinations'}</h4>
+                          {recentSearches.length > 0 && (
+                            <div className="mb-4">
+                              <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider mb-2">
+                                {language === 'vi' ? 'Tìm kiếm gần đây' : 'Recent searches'}
+                              </h4>
+                              <div className="space-y-1">
+                                {recentSearches.map((item, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => handleSelectRecentSearch(item)}
+                                    className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <Clock className="w-5 h-5 text-slate-400 shrink-0" />
+                                      <div>
+                                        <p className="font-bold text-sm text-slate-900">
+                                          {item.provinceName}
+                                        </p>
+                                        <p className="text-[10px] font-bold text-slate-500">
+                                          {formatSearchDatesHelper(item.checkIn, item.checkOut)} · {item.adults + item.children} khách
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider mb-2">
+                            {language === 'vi' ? 'Điểm đến phổ biến' : 'Popular destinations'}
+                          </h4>
                           <div className="space-y-1">
                             {provincesList.slice(0, 8).map((prov) => (
                               <div
@@ -1605,8 +1795,12 @@ export const HotelDetail: React.FC = () => {
                               >
                                 <MapPin className="w-5 h-5 text-slate-400 shrink-0" />
                                 <div>
-                                  <p className="font-bold text-sm text-slate-900">{translateProvinceName(prov.name, language)}</p>
-                                  <p className="text-[10px] font-bold text-slate-550">{language === 'vi' ? 'Việt Nam' : 'Vietnam'}</p>
+                                  <p className="font-bold text-sm text-slate-900">
+                                    {translateProvinceName(prov.name, language)}
+                                  </p>
+                                  <p className="text-[10px] font-bold text-slate-550">
+                                    {language === 'vi' ? 'Việt Nam' : 'Vietnam'}
+                                  </p>
                                 </div>
                               </div>
                             ))}
@@ -1614,28 +1808,45 @@ export const HotelDetail: React.FC = () => {
                         </div>
                       ) : (
                         <div>
-                          {matchedProvinces.length > 0 ? (
+                          {combinedSuggestions.length > 0 ? (
                             <div className="space-y-1">
-                              {matchedProvinces.map((prov) => (
+                              {combinedSuggestions.map((item, idx) => (
                                 <div
-                                  key={prov.id}
+                                  key={idx}
                                   onClick={() => {
-                                    setProvinceId(prov.id);
-                                    setDestInputText(translateProvinceName(prov.name, language));
+                                    if (item.type === 'province') {
+                                      setProvinceId(item.id);
+                                      setDestInputText(translateProvinceName(item.name, language));
+                                    } else {
+                                      setProvinceId('');
+                                      setDestInputText(item.name);
+                                    }
                                     setShowDestPopover(false);
                                   }}
                                   className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
                                 >
-                                  <MapPin className="w-5 h-5 text-slate-400 shrink-0" />
+                                  {item.type === 'province' ? (
+                                    <MapPin className="w-5 h-5 text-slate-400 shrink-0" />
+                                  ) : (
+                                    <Building2 className="w-5 h-5 text-blue-500 shrink-0" />
+                                  )}
                                   <div>
-                                    <p className="font-bold text-sm text-slate-900">{translateProvinceName(prov.name, language)}</p>
-                                    <p className="text-[10px] font-bold text-slate-550">{language === 'vi' ? 'Điểm đến · Việt Nam' : 'Destination · Vietnam'}</p>
+                                    <p className="font-bold text-sm text-slate-900">
+                                      {item.type === 'province' ? translateProvinceName(item.name, language) : item.name}
+                                    </p>
+                                    <p className="text-[10px] font-bold text-slate-550">
+                                      {item.type === 'province'
+                                        ? (language === 'vi' ? 'Điểm đến · Việt Nam' : 'Destination · Vietnam')
+                                        : `${item.province || ''} · Khách sạn`}
+                                    </p>
                                   </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <p className="text-xs font-bold text-slate-400 py-2 text-center">{language === 'vi' ? 'Không tìm thấy kết quả phù hợp' : 'No matching results found'}</p>
+                            <p className="text-xs font-bold text-slate-400 py-2 text-center">
+                              {language === 'vi' ? 'Không tìm thấy kết quả phù hợp' : 'No matching results found'}
+                            </p>
                           )}
                         </div>
                       )}
@@ -1646,7 +1857,7 @@ export const HotelDetail: React.FC = () => {
             </div>
 
             {/* Dates Panel */}
-            <div className="flex-grow lg:flex-[2.0] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+            <div className="flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative">
               <CalendarIcon className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
@@ -1663,59 +1874,78 @@ export const HotelDetail: React.FC = () => {
               {showDatePopover && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowDatePopover(false)} />
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 lg:translate-x-0 lg:left-0 mt-2 w-[90vw] sm:w-[760px] bg-white rounded-lg shadow-2xl border border-slate-155 p-5 z-40 text-slate-800">
-                    <div className="space-y-4">
-                      {/* Tabs */}
-                      <div className="flex pb-1">
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 lg:translate-x-0 lg:left-0 mt-2 w-[90vw] sm:w-[760px] bg-white rounded-lg shadow-2xl border border-slate-150 p-5 z-40 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="space-y-4 text-left">
+                      {/* Calendar Header */}
+                      <div className="flex justify-between items-center px-1">
                         <button
                           type="button"
-                          className="flex-1 pb-2 text-sm font-bold border-b-2 border-blue-600 text-blue-600"
+                          onClick={handlePrevMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-650 shrink-0"
                         >
-                          {language === 'vi' ? 'Lịch' : 'Calendar'}
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+
+                        <div className="flex-1 grid grid-cols-2 gap-12 text-center">
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month1]} {year1}
+                          </h4>
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month2]} {year2}
+                          </h4>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleNextMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-655 shrink-0"
+                        >
+                          <ChevronRight className="w-5 h-5" />
                         </button>
                       </div>
 
-                      {/* Two calendars side by side */}
-                      <div className="flex flex-col md:flex-row gap-8 justify-center items-start">
+                      {/* Two months calendar layout side-by-side */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 pt-2">
                         {/* Month 1 */}
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center mb-4">
-                            <button type="button" onClick={handlePrevMonths} className="p-1 hover:bg-slate-100 rounded">
-                              &lt;
-                            </button>
-                            <span className="text-sm font-extrabold capitalize text-slate-900">
-                              {monthNames[month1]} {year1}
-                            </span>
-                            <span className="w-6"></span>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
-
-                          <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
-                            {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(d => <span key={d}>{d}</span>)}
-                          </div>
-                          <div className="grid grid-cols-7 gap-1">
-                            {getDaysInMonth(year1, month1).map((date, idx) => {
-                              if (!date) return <div key={`empty-1-${idx}`} className="h-9"></div>;
-                              const dStr = date.toISOString().split('T')[0];
-                              const isToday = dStr === today.toISOString().split('T')[0];
-                              const isPast = dStr < today.toISOString().split('T')[0];
-                              const selected = isSelected(dStr);
-                              const range = isInRange(dStr) || isInHoverRange(dStr);
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year1, month1).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const todayStr = getLocalDateString(new Date(), 0);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
                               return (
                                 <button
+                                  key={idx}
                                   type="button"
-                                  key={`day-1-${dStr}`}
                                   disabled={isPast}
-                                  onClick={() => handleDayClick(dStr)}
-                                  onMouseEnter={() => handleDayMouseEnter(dStr)}
-                                  className={`h-9 w-9 text-xs rounded-full flex items-center justify-center font-bold transition-all relative
-                                    ${isPast ? 'text-slate-200 cursor-not-allowed' : 'text-slate-800 hover:bg-slate-100'}
-                                    ${selected ? 'bg-[#006ce4] text-white hover:bg-[#006ce4]' : ''}
-                                    ${range && !selected ? 'bg-blue-50 text-[#006ce4] rounded-none' : ''}
-                                    ${isToday && !selected ? 'border border-primary' : ''}
-                                  `}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
+                                          : isPast
+                                            ? 'bg-slate-100/90 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
                                 >
-                                  {date.getDate()}
+                                  {dayNum}
                                 </button>
                               );
                             })}
@@ -1723,42 +1953,45 @@ export const HotelDetail: React.FC = () => {
                         </div>
 
                         {/* Month 2 */}
-                        <div className="flex-1">
-                          <div className="flex justify-between items-center mb-4">
-                            <span className="w-6"></span>
-                            <span className="text-sm font-extrabold capitalize text-slate-900">
-                              {monthNames[month1 === 11 ? 0 : month1 + 1]} {month1 === 11 ? year1 + 1 : year1}
-                            </span>
-                            <button type="button" onClick={handleNextMonths} className="p-1 hover:bg-slate-100 rounded">
-                              &gt;
-                            </button>
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
-
-                          <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-400 mb-2">
-                            {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(d => <span key={d}>{d}</span>)}
-                          </div>
-                          <div className="grid grid-cols-7 gap-1">
-                            {getDaysInMonth(month1 === 11 ? year1 + 1 : year1, month1 === 11 ? 0 : month1 + 1).map((date, idx) => {
-                              if (!date) return <div key={`empty-2-${idx}`} className="h-9"></div>;
-                              const dStr = date.toISOString().split('T')[0];
-                              const isPast = dStr < today.toISOString().split('T')[0];
-                              const selected = isSelected(dStr);
-                              const range = isInRange(dStr) || isInHoverRange(dStr);
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year2, month2).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const todayStr = getLocalDateString(new Date(), 0);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
                               return (
                                 <button
+                                  key={idx}
                                   type="button"
-                                  key={`day-2-${dStr}`}
                                   disabled={isPast}
-                                  onClick={() => handleDayClick(dStr)}
-                                  onMouseEnter={() => handleDayMouseEnter(dStr)}
-                                  className={`h-9 w-9 text-xs rounded-full flex items-center justify-center font-bold transition-all relative
-                                    ${isPast ? 'text-slate-200 cursor-not-allowed' : 'text-slate-800 hover:bg-slate-100'}
-                                    ${selected ? 'bg-[#006ce4] text-white hover:bg-[#006ce4]' : ''}
-                                    ${range && !selected ? 'bg-blue-50 text-[#006ce4] rounded-none' : ''}
-                                  `}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
+                                          : isPast
+                                            ? 'bg-slate-100/90 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
                                 >
-                                  {date.getDate()}
+                                  {dayNum}
                                 </button>
                               );
                             })}
@@ -1766,15 +1999,7 @@ export const HotelDetail: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="flex justify-end pt-4 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => setShowDatePopover(false)}
-                          className="bg-[#006ce4] hover:bg-[#0056b3] text-white font-bold text-sm px-8 py-2.5 rounded-lg transition-colors"
-                        >
-                          {language === 'vi' ? 'Xong' : 'Done'}
-                        </button>
-                      </div>
+
                     </div>
                   </div>
                 </>
@@ -1782,8 +2007,8 @@ export const HotelDetail: React.FC = () => {
             </div>
 
             {/* Guests Panel */}
-            <div className="flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative">
-              <User className="w-6 h-6 text-slate-400 shrink-0" />
+            <div className="flex-grow lg:flex-[2.2] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+              <Users className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
                   setShowGuestPopover(!showGuestPopover);
@@ -1902,18 +2127,17 @@ export const HotelDetail: React.FC = () => {
         <div id="overview-section" className="bg-white border border-slate-150 rounded-3xl p-6 sm:p-8 space-y-10 shadow-sm relative">
 
           {/* Sub Navigation Tabs */}
-          <div className="sticky top-0 z-40 bg-white border-b border-slate-150 pb-2 -mx-6 sm:-mx-8 px-6 sm:px-8 -mt-6 sm:-mt-8 rounded-t-3xl shadow-sm">
-            <div className="flex overflow-x-auto no-scrollbar justify-between items-center w-full h-12">
+          <div className="sticky top-0 z-40 bg-white border-b border-slate-150 -mx-6 sm:-mx-8 px-6 sm:px-8 -mt-6 sm:-mt-8 rounded-t-3xl shadow-sm">
+            <div className="flex overflow-x-auto overflow-y-hidden no-scrollbar justify-between items-center w-full">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => scrollToSection(tab.id)}
-                  className={`text-xs sm:text-sm font-bold border-b-2 py-3 px-1 transition-all duration-200 whitespace-nowrap focus:outline-none flex-1 text-center ${
-                    activeTab === tab.id
+                  className={`py-3.5 px-2 text-xs sm:text-sm font-bold border-b-2 -mb-[1px] transition-all duration-200 whitespace-nowrap focus:outline-none flex-1 text-center flex items-center justify-center ${activeTab === tab.id
                       ? 'border-[#006ce4] text-[#006ce4]'
                       : 'border-transparent text-slate-500 hover:text-[#006ce4] hover:border-[#006ce4]'
-                  }`}
+                    }`}
                 >
                   {tab.label}
                 </button>
@@ -1926,9 +2150,14 @@ export const HotelDetail: React.FC = () => {
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-none">{hotel.name}</h1>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1 text-xs font-extrabold bg-[#ebf3ff] text-[#006ce4] px-2.5 py-1 rounded">
-                  {translateCategoryName(hotel.category.name, language)}
-                </span>
+                {(hotel as any).propertyType && (
+                  <span className="inline-flex items-center text-xs font-extrabold bg-purple-50 text-purple-600 px-2.5 py-1 rounded">
+                    {language === 'vi'
+                      ? ({ HOTEL: 'Khách sạn', APARTMENT: 'Căn hộ', VILLA: 'Villa', RESORT: 'Resort', HOMESTAY: 'Homestay', GUESTHOUSE: 'Nhà nghỉ' } as Record<string, string>)[(hotel as any).propertyType] || (hotel as any).propertyType
+                      : (hotel as any).propertyType.charAt(0) + (hotel as any).propertyType.slice(1).toLowerCase()
+                    }
+                  </span>
+                )}
                 <div className="flex items-center gap-0.5">
                   {Array.from({ length: hotel.starRating || 0 }).map((_, i) => (
                     <StarIcon key={i} size={16} />
@@ -1985,17 +2214,16 @@ export const HotelDetail: React.FC = () => {
                         </div>
                         <p className="text-[11px] font-bold text-slate-700 line-clamp-1">{c.description || minText}</p>
                         <p className="text-[10px] text-slate-400 font-medium">{minText}{maxText}</p>
-                        <p className="text-[10px] text-slate-400 font-medium">HSD: {new Date(c.endDate).toLocaleDateString('vi-VN')}</p>
+                        <p className="text-[10px] text-slate-400 font-medium">HSD: {formatDateVN(c.endDate)}</p>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => handleCopyCoupon(c.code)}
-                        className={`w-full py-1.5 px-3 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 ${
-                          isCopied
+                        className={`w-full py-1.5 px-3 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 ${isCopied
                             ? 'bg-emerald-600 text-white'
                             : 'bg-red-600 hover:bg-red-700 text-white shadow-xs'
-                        }`}
+                          }`}
                       >
                         {isCopied ? (
                           <>✓ {language === 'vi' ? 'Đã sao chép!' : 'Copied!'}</>
@@ -2010,82 +2238,325 @@ export const HotelDetail: React.FC = () => {
             </div>
           )}
 
-          {/* Airbnb style Photo Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 h-[350px] sm:h-[450px] rounded-2xl overflow-hidden border border-slate-100 bg-white">
-            <div className="md:col-span-2 h-full overflow-hidden">
-              <img src={mainPhoto} alt={hotel.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
-            </div>
-            <div className="hidden md:grid grid-cols-2 col-span-2 gap-3 h-full">
-              {subPhotos.map((img, i) => (
-                <div key={i} className="w-full h-full overflow-hidden">
+          {/* Hotel Photo Grid Container (Fixed Height, no distortion) */}
+          <div className="relative w-full h-[320px] sm:h-[380px] md:h-[440px] rounded-2xl overflow-hidden bg-slate-100 border border-slate-150 shadow-xs">
+            {hotel.images.length <= 4 ? (
+              /* If hotel has 4 or fewer images: Left main photo (60%) + Right 3 photos grid (40%) */
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5 h-full w-full p-0">
+                {/* Main Photo (Left 2 columns) */}
+                <div
+                  onClick={() => { setGalleryActiveIndex(0); setIsGalleryModalOpen(true); }}
+                  className="md:col-span-2 h-full w-full min-h-0 overflow-hidden cursor-pointer relative group rounded-xl bg-slate-200"
+                >
                   <img
-                    src={img.url}
-                    alt={`${hotel.name} room ${i}`}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                    src={mainPhoto}
+                    alt={hotel.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
+                  <div className="absolute inset-0 bg-black/5 group-hover:bg-black/20 transition-colors" />
                 </div>
-              ))}
-              {/* Fallback if less than 5 photos */}
-              {Array.from({ length: 4 - subPhotos.length }).map((_, i) => (
-                <div key={i} className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-300 text-xs font-medium border border-dashed border-slate-200 rounded-lg">
-                  {t.bedroomFallback}
+
+                {/* Sub Photos Grid (Right 2 columns, 2 rows) */}
+                <div className="hidden md:grid grid-cols-2 grid-rows-2 gap-2.5 col-span-2 h-full w-full min-h-0" style={{ gridTemplateRows: 'repeat(2, minmax(0, 1fr))' }}>
+                  {hotel.images.slice(1, 4).map((img, i) => {
+                    const isLast = i === Math.min(2, hotel.images.length - 2);
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => { setGalleryActiveIndex(i + 1); setIsGalleryModalOpen(true); }}
+                        className="w-full h-full min-h-0 overflow-hidden cursor-pointer relative group rounded-xl bg-slate-200"
+                      >
+                        <img
+                          src={img.url}
+                          alt={`${hotel.name} photo ${i + 2}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <div className="absolute inset-0 bg-black/5 group-hover:bg-black/20 transition-colors" />
+                        {isLast && (
+                          <div className="absolute inset-0 bg-black/55 hover:bg-black/70 transition-colors flex flex-col items-center justify-center text-white gap-1 p-2 font-black text-xs text-center shadow-inner">
+                            <Compass className="w-4 h-4 text-white animate-pulse" />
+                            <span className="leading-tight">{language === 'vi' ? `Xem tất cả ${hotel.images.length} hình ảnh` : `View all ${hotel.images.length} photos`}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Fill 4th slot if only 3 images total */}
+                  {hotel.images.length === 3 && (
+                    <div
+                      onClick={() => { setGalleryActiveIndex(0); setIsGalleryModalOpen(true); }}
+                      className="w-full h-full min-h-0 overflow-hidden cursor-pointer relative group rounded-xl bg-slate-900 flex flex-col items-center justify-center text-white p-2 text-center"
+                    >
+                      <Compass className="w-5 h-5 text-white animate-pulse" />
+                      <span className="text-xs font-black mt-1 leading-tight">{language === 'vi' ? `Xem tất cả ${hotel.images.length} hình ảnh` : `View all ${hotel.images.length} photos`}</span>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              /* If hotel has 5 or more images: Left main photo (col-span-2) + Right 6 photos (col-span-3, 3 cols x 2 rows) */
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5 h-full w-full p-0">
+                {/* Main Photo (Left 2 Columns) */}
+                <div
+                  onClick={() => { setGalleryActiveIndex(0); setIsGalleryModalOpen(true); }}
+                  className="md:col-span-2 h-full w-full min-h-0 overflow-hidden cursor-pointer relative group rounded-xl bg-slate-200"
+                >
+                  <img
+                    src={mainPhoto}
+                    alt={hotel.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-black/5 group-hover:bg-black/20 transition-colors" />
+                </div>
+
+                {/* Sub Photos Grid (Right 3 Columns x 2 Rows = 6 Slots) */}
+                <div className="hidden md:grid grid-cols-3 grid-rows-2 col-span-3 gap-2.5 h-full w-full min-h-0" style={{ gridTemplateRows: 'repeat(2, minmax(0, 1fr))' }}>
+                  {Array.from({ length: 6 }).map((_, i) => {
+                    const img = hotel.images[i + 1];
+                    const isLastSlot = i === 5 || i === (hotel.images.length - 2);
+
+                    if (!img) {
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => { setGalleryActiveIndex(0); setIsGalleryModalOpen(true); }}
+                          className="w-full h-full min-h-0 bg-slate-100 flex items-center justify-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 rounded-xl cursor-pointer hover:bg-slate-200/60 transition-colors"
+                        >
+                          {t.bedroomFallback}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => { setGalleryActiveIndex(i + 1); setIsGalleryModalOpen(true); }}
+                        className="w-full h-full min-h-0 overflow-hidden cursor-pointer relative group rounded-xl bg-slate-200"
+                      >
+                        <img
+                          src={img.url}
+                          alt={`${hotel.name} photo ${i + 2}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+
+                        {!isLastSlot && (
+                          <div className="absolute inset-0 bg-black/5 group-hover:bg-black/20 transition-colors" />
+                        )}
+
+                        {isLastSlot && (
+                          <div className="absolute inset-0 bg-black/55 hover:bg-black/70 transition-colors flex flex-col items-center justify-center text-white gap-1.5 p-2 font-black text-xs sm:text-sm text-center shadow-inner">
+                            <Compass className="w-5 h-5 text-white animate-pulse" />
+                            <span className="tracking-tight leading-tight">
+                              {language === 'vi'
+                                ? `Xem tất cả ${hotel.images.length} hình ảnh`
+                                : `View all ${hotel.images.length} photos`}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Main Details and Amenities Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-4">
-            {/* About Property */}
-            <div className="lg:col-span-2 space-y-4">
-              <h2 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
-                <span className="w-1.5 h-5 bg-[#006ce4] rounded-full inline-block"></span>
-                {t.about}
-              </h2>
-              <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-line">
-                {hotel.description}
-              </p>
+          {/* 3-Column Overview Section matching screenshot layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 pt-4">
+            
+            {/* Card 1: Ratings & Review Snippets */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between hover:border-slate-300 transition-all relative overflow-hidden h-[384px]">
+              {/* SVG Background decoration - Full Width Top Header Wave */}
+              <div
+                className="absolute top-0 left-0 right-0 w-full h-[105px] bg-no-repeat bg-cover bg-top pointer-events-none opacity-90 z-0"
+                style={{ backgroundImage: "url('/review.svg')" }}
+              />
+              <div className="space-y-3 relative z-10 flex-1 flex flex-col justify-between">
+                <div>
+                  {/* Score & Review Count Header matching Image 1 */}
+                  <div className="border-b border-slate-100/80 pb-3">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-black text-[#006ce4] tracking-tight">
+                        {displayAverageRating.toString().replace('.', ',')}
+                      </span>
+                      <span className="text-xs font-bold text-slate-400">/10</span>
+                      <div className="ml-2 flex flex-col justify-center">
+                        <span className="font-extrabold text-slate-900 text-sm leading-tight">
+                          {getRatingLabel(displayAverageRating, language)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById('reviews-section');
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          className="text-xs font-black text-[#006ce4] hover:underline flex items-center gap-0.5 cursor-pointer leading-tight text-left mt-0.5"
+                        >
+                          {hotel.reviews.length} {language === 'vi' ? 'đánh giá' : 'reviews'} &rsaquo;
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <h3 className="font-black text-slate-900 text-sm pt-2 mb-2">
+                    {language === 'vi' ? 'Khách nói gì về kỳ nghỉ của họ' : 'What guests say about their stay'}
+                  </h3>
+                </div>
+
+                {/* Review Snippets List */}
+                <div className="space-y-2.5 overflow-y-auto pr-1 flex-1">
+                  {hotel.reviews && hotel.reviews.length > 0 ? (
+                    hotel.reviews.slice(0, 2).map((rev) => (
+                      <div key={rev.id} className="bg-slate-50 border border-slate-100 p-3 rounded-xl space-y-1.5 text-xs shadow-2xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-extrabold text-slate-700">{rev.user?.fullName || 'Khách lưu trú'}</span>
+                          <span className="text-[#006ce4] font-black text-[11px] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                            ★ {normalizeRating(rev.ratingOverall)} / 10
+                          </span>
+                        </div>
+                        <p className="text-slate-600 font-medium line-clamp-3 italic leading-relaxed">
+                          "{rev.comment}"
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 font-bold italic py-4 text-center bg-slate-50 rounded-xl border border-slate-100">
+                      {language === 'vi' ? 'Chưa có đánh giá nào' : 'No reviews yet'}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Amenities List */}
-            <div className="space-y-4">
-              <h2 className="font-extrabold text-slate-900 text-lg flex items-center gap-2">
-                <span className="w-1.5 h-5 bg-[#006ce4] rounded-full inline-block"></span>
-                {t.amenities}
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {getFeaturedAmenities().map(({ amenity }) => (
-                  <div key={amenity.name} className="flex items-center gap-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100/50 transition-colors">
-                    <div className="text-[#006ce4] shrink-0">{getAmenityIcon(amenity.name)}</div>
-                    <span className="text-xs font-bold text-slate-700 leading-tight">{translateAmenityName(amenity.name)}</span>
+            {/* Card 2: Location & Nearby Landmarks */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between hover:border-slate-300 transition-all relative overflow-hidden h-[384px]">
+              {/* SVG Background decoration for Map - Full Width Top Header */}
+              <div
+                className="absolute top-0 left-0 right-0 w-full h-[140px] bg-no-repeat bg-cover bg-top pointer-events-none opacity-30 z-0"
+                style={{ backgroundImage: "url('/map.svg')" }}
+              />
+              <div className="space-y-3 relative z-10 flex-1 flex flex-col justify-between overflow-hidden">
+                <div>
+                  {/* Header with View Map Link */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 className="font-black text-slate-900 text-sm leading-none">
+                      {language === 'vi' ? 'Trong khu vực' : 'In the area'}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveMapQuery(hotel.name + ' ' + (hotel.address || ''));
+                        setIsMapModalOpen(true);
+                      }}
+                      className="text-xs font-black text-[#006ce4] hover:underline flex items-center gap-0.5 cursor-pointer leading-none"
+                    >
+                      {language === 'vi' ? 'Xem bản đồ' : 'View map'} &rsaquo;
+                    </button>
                   </div>
-                ))}
+
+                  {/* Hotel Address */}
+                  <div className="flex items-start gap-2 text-xs font-semibold text-slate-800 pt-2">
+                    <svg className="w-4 h-4 text-slate-700 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path fillRule="evenodd" clipRule="evenodd" d="M12 1C8.13401 1 5 4.13401 5 8C5 12.875 11.2 21.2 11.5 21.6C11.7 21.8 12.3 21.8 12.5 21.6C12.8 21.2 19 12.8 19 8C19 4.13401 15.866 1 12 1ZM12 11.5C10.067 11.5 8.5 9.933 8.5 8C8.5 6.067 10.067 4.5 12 4.5C13.933 4.5 15.5 6.067 15.5 8C15.5 9.933 13.933 11.5 12 11.5Z" />
+                    </svg>
+                    <span className="leading-snug">{translateAddress(hotel.address, hotel.district.name, hotel.province.name, language)}</span>
+                  </div>
+
+                  {/* Tag Badge */}
+                  <div className="inline-flex items-center gap-1.5 bg-[#e8f5fd] text-[#0194f3] px-3 py-1 rounded-full text-xs font-bold my-2">
+                    <span>🎯</span>
+                    <span>{language === 'vi' ? 'Gần khu vui chơi giải trí' : 'Near entertainment area'}</span>
+                  </div>
+                </div>
+
+                {/* Nearby Locations List */}
+                <div className="space-y-2 text-xs pt-1 overflow-y-auto pr-1 flex-1">
+                  {hotel.nearbyLocations && hotel.nearbyLocations.length > 0 ? (
+                    hotel.nearbyLocations.slice(0, 7).map((loc: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center gap-2">
+                        <span className="line-clamp-1 font-bold text-slate-800 flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-slate-800 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                            <path fillRule="evenodd" clipRule="evenodd" d="M12 1C8.13401 1 5 4.13401 5 8C5 12.875 11.2 21.2 11.5 21.6C11.7 21.8 12.3 21.8 12.5 21.6C12.8 21.2 19 12.8 19 8C19 4.13401 15.866 1 12 1ZM12 11.5C10.067 11.5 8.5 9.933 8.5 8C8.5 6.067 10.067 4.5 12 4.5C13.933 4.5 15.5 6.067 15.5 8C15.5 9.933 13.933 11.5 12 11.5Z" />
+                          </svg>
+                          {loc.name}
+                        </span>
+                        <span className="text-slate-400 font-medium text-[11px] shrink-0">{loc.distance}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-400 font-bold italic py-2">
+                      {language === 'vi' ? 'Không có thông tin địa điểm lân cận' : 'No nearby location info'}
+                    </p>
+                  )}
+                </div>
               </div>
-              {hotel.amenities.length > 8 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById('facilities-section');
-                    if (el) {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                  }}
-                  className="text-xs font-black text-[#006ce4] hover:text-[#0053b4] flex items-center gap-1 mt-3"
-                >
-                  {language === 'vi' ? `Xem thêm tất cả` : `See all amenities`}
-                  <span className="text-[10px]">↓</span>
-                </button>
-              )}
             </div>
+
+            {/* Card 3: Main Amenities */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-2xs flex flex-col justify-between hover:border-slate-300 transition-all relative overflow-hidden h-[384px]">
+              <div className="space-y-3">
+                {/* Header with See More Link */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3 h-7">
+                  <h3 className="font-black text-slate-800 text-sm leading-none">
+                    {language === 'vi' ? 'Tiện ích chính' : 'Main amenities'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('facilities-section');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="text-xs font-extrabold text-[#006ce4] hover:underline flex items-center gap-0.5 cursor-pointer leading-none"
+                  >
+                    {language === 'vi' ? 'Xem thêm' : 'See more'} &rsaquo;
+                  </button>
+                </div>
+
+                {/* Main Amenities List */}
+                <div className="space-y-3 pt-1">
+                  {getFeaturedAmenities().slice(0, 5).map(({ amenity }) => (
+                    <div key={amenity.name} className="flex items-center gap-3 p-2 rounded-xl bg-slate-50/70 border border-slate-100">
+                      <div className="text-[#006ce4] shrink-0 p-1 bg-white rounded-lg border border-slate-100 shadow-2xs">
+                        {getAmenityIcon(amenity.name)}
+                      </div>
+                      <span className="text-xs font-extrabold text-slate-700 leading-tight">
+                        {translateAmenityName(amenity.name)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Giới thiệu chỗ nghỉ (Moved below 3-column overview grid) */}
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-2xs space-y-3">
+            <h2 className="font-extrabold text-slate-900 text-base sm:text-lg flex items-center gap-2">
+              <span className="w-1.5 h-5 bg-[#006ce4] rounded-full inline-block"></span>
+              {language === 'vi' ? `Giới thiệu chỗ nghỉ ${hotel.name}` : `About ${hotel.name}`}
+            </h2>
+            <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-line font-medium">
+              {hotel.description}
+            </p>
           </div>
 
           <hr className="border-slate-100" />
           <section id="rooms-section" className="space-y-6">
             {/* Header of Room Selection */}
-            <div className="pb-2">
+            <div className="pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                 {language === 'vi' ? `Những phòng còn trống tại ${hotel.name}` : `Available rooms at ${hotel.name}`}
               </h2>
+
+              {/* Selected Dates Badge */}
+              <div className="flex items-center gap-2 bg-blue-50/90 border border-blue-200 text-blue-900 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold shadow-2xs self-start sm:self-auto transition-all duration-300">
+                <CalendarIcon className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>{formatDateDisplay()}</span>
+                <span className="bg-blue-600 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full ml-1 shrink-0">
+                  {getNightsCount()} {language === 'vi' ? 'đêm' : 'nights'}
+                </span>
+              </div>
             </div>
 
             {/* Quick Filters and Price Display Options */}
@@ -2104,8 +2575,8 @@ export const HotelDetail: React.FC = () => {
                         type="button"
                         onClick={() => toggleTag(lookupTag)}
                         className={`font-semibold text-xs px-4 py-2 rounded-full transition-colors active:scale-95 shadow-sm ${isActive
-                            ? 'bg-[#006ce4] text-white hover:bg-[#0056b3]'
-                            : 'bg-[#f0f4fa] text-[#006ce4] hover:bg-[#e2edf8]'
+                          ? 'bg-[#006ce4] text-white hover:bg-[#0056b3]'
+                          : 'bg-[#f0f4fa] text-[#006ce4] hover:bg-[#e2edf8]'
                           }`}
                       >
                         {tag}
@@ -2150,13 +2621,25 @@ export const HotelDetail: React.FC = () => {
               {groupRoomTypes().map((group) => {
                 const representative = group.roomTypes[0];
                 return (
-                  <div key={group.baseName} className="border border-slate-200 rounded-2xl p-6 bg-white shadow-sm space-y-4">
-                    {/* Room Type Header spanning full width at top */}
-                    <h3 className="font-extrabold text-slate-900 text-xl pb-1">{group.baseName}</h3>
+                  <div
+                    key={group.baseName}
+                    className="border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4 relative overflow-hidden"
+                    style={{
+                      backgroundImage: "url('/room-background.svg')",
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      backgroundRepeat: 'no-repeat',
+                    }}
+                  >
+                    {/* Lớp phủ trắng nhẹ giữ độ tương phản nội dung */}
+                    <div className="absolute inset-0 bg-white/60 pointer-events-none z-0" />
 
-                    <div className="flex flex-col lg:flex-row gap-6 items-start">
-                      {/* Left Column: Room visual info (no borders, no backgrounds, larger image) */}
-                      <div className="w-full lg:w-[350px] flex flex-col gap-4 shrink-0 bg-white">
+                    {/* Room Type Header spanning full width at top */}
+                    <h3 className="font-extrabold text-slate-900 text-xl pb-1 relative z-10">{group.baseName}</h3>
+
+                    <div className="flex flex-col lg:flex-row gap-6 items-start relative z-10">
+                      {/* Left Column: Room visual info (transparent background to reveal SVG pattern) */}
+                      <div className="w-full lg:w-[350px] flex flex-col gap-4 shrink-0 bg-transparent">
                         <div className="relative rounded-xl overflow-hidden aspect-[4/3] w-full bg-slate-100 shadow-sm group">
                           {(() => {
                             const imgIdx = activeImageIndices[group.baseName] || 0;
@@ -2218,7 +2701,7 @@ export const HotelDetail: React.FC = () => {
 
                           <div className="flex items-center gap-2">
                             <Bed className="w-4.5 h-4.5 text-slate-400 shrink-0" />
-                            <span>{representative.bedCount} {language === 'vi' ? 'Giường lớn' : 'Large beds'}</span>
+                            <span>{representative.bedCount} {representative.bedType || (language === 'vi' ? 'Giường lớn' : 'Large beds')}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -2284,49 +2767,86 @@ export const HotelDetail: React.FC = () => {
                                   return (
                                     <tr key={key} className="hover:bg-slate-50/50 transition-colors border-b border-slate-100">
                                       {/* Option Name & Description from DB */}
-                                      <td className="px-6 py-6 w-[32%] border-r border-slate-100 break-words">
-                                        <div className="space-y-2.5">
-                                          <p className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">{rt.name}</p>
+                                      <td className="px-5 py-5 w-[32%] border-r border-slate-100 break-words">
+                                        <div className="space-y-2">
+                                          {/* Tên phòng / hạng phòng (fontsize 12px) */}
+                                          <p className="font-medium text-slate-600 text-[12px] leading-snug">{rt.name}</p>
 
-                                          {/* Bữa sáng */}
-                                          {rt.includeBreakfast && (
+                                          {/* Trạng thái bữa sáng */}
+                                          {rt.includeBreakfast ? (
                                             <p className="font-extrabold text-emerald-600 text-xs sm:text-sm">
                                               {language === 'vi' ? 'Bao gồm bữa sáng 🍳' : 'Breakfast included 🍳'}
                                             </p>
+                                          ) : (
+                                            <p className="font-extrabold text-slate-900 text-xs sm:text-sm">
+                                              {language === 'vi' ? 'Không gồm bữa sáng' : 'Breakfast not included'}
+                                            </p>
                                           )}
 
-                                          <div className="space-y-2 pt-0.5">
-                                            {/* Thanh Toán / Phương thức Badge */}
-                                            {plan ? (
-                                              <div className="flex items-center gap-2 text-xs text-[#006ce4] font-extrabold">
-                                                <span>💳</span>
-                                                <span>
-                                                  {plan.paymentPolicy === 'PAY_ONLINE' ? 'Thanh toán online 100%' : plan.paymentPolicy === 'DEPOSIT' ? `Đặt cọc ${plan.depositType === 'PERCENTAGE' ? plan.depositValue + '%' : Number(plan.depositValue).toLocaleString('vi-VN') + 'đ'} trước` : 'Thanh toán tại khách sạn'}
-                                                </span>
-                                              </div>
-                                            ) : (
-                                              rt.paymentPolicy && (
-                                                <div className="flex items-center gap-2 text-xs text-[#006ce4] font-extrabold">
-                                                  <span>✓</span>
-                                                  <span>{rt.paymentPolicy === 'PAY_ONLINE' ? 'Thanh Toán Trực Tuyến' : 'Thanh Toán Tại Khách Sạn'}</span>
-                                                </div>
-                                              )
-                                            )}
+                                          {/* Thông tin Giường của phòng */}
+                                          <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                                            <Bed className="w-4 h-4 text-slate-700 shrink-0" />
+                                            <span>
+                                              {rt.bedType ? rt.bedType : `${rt.bedCount || 1} ${language === 'vi' ? 'giường lớn' : 'large bed'}`}
+                                            </span>
+                                          </div>
 
-                                            {/* Chính sách hủy phòng Badge */}
+                                          {/* Chính sách hủy phòng & Thanh toán (Check icon w-4 h-4, font-bold, căn thẳng hàng) */}
+                                          <div className="space-y-1.5 pt-0.5 text-xs font-bold">
+                                            {/* Chính sách hủy phòng */}
                                             {plan ? (
-                                              <div className="flex items-center gap-2 text-xs font-bold">
+                                              <div className="flex items-center gap-2">
                                                 {plan.cancellationPolicy === 'NON_REFUNDABLE' ? (
-                                                  <span className="text-red-500 flex items-center gap-1.5">❌ Không hoàn tiền nếu hủy</span>
+                                                  <>
+                                                    <Check className="w-4 h-4 text-slate-700 shrink-0" />
+                                                    <span className="text-slate-700 font-bold">
+                                                      {language === 'vi' ? 'Không được hoàn tiền' : 'Non-refundable'}
+                                                    </span>
+                                                  </>
                                                 ) : (
-                                                  <span className="text-emerald-600 flex items-center gap-1.5">✓ Miễn phí hủy trước {plan.freeCancelHoursBefore || 24}h</span>
+                                                  <>
+                                                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                                    <span className="text-emerald-600 font-bold">
+                                                      {language === 'vi' ? `Miễn phí hủy trước ${plan.freeCancelHoursBefore || 24}h` : `Free cancellation up to ${plan.freeCancelHoursBefore || 24}h`}
+                                                    </span>
+                                                  </>
                                                 )}
                                               </div>
                                             ) : (
                                               rt.cancellationPolicy && (
-                                                <div className="flex items-center gap-2 text-xs text-emerald-600 font-bold">
+                                                <div className="flex items-center gap-2">
+                                                  <Check className={`w-4 h-4 shrink-0 ${rt.cancellationPolicy === 'NON_REFUNDABLE' ? 'text-slate-700' : 'text-emerald-600'}`} />
+                                                  <span className={`font-bold ${rt.cancellationPolicy === 'NON_REFUNDABLE' ? 'text-slate-700' : 'text-emerald-600'}`}>
+                                                    {rt.cancellationPolicy === 'NON_REFUNDABLE'
+                                                      ? (language === 'vi' ? 'Không được hoàn tiền' : 'Non-refundable')
+                                                      : (language === 'vi' ? 'Áp dụng chính sách hủy phòng' : 'Cancellation policy applies')
+                                                    }
+                                                  </span>
+                                                </div>
+                                              )
+                                            )}
+
+                                            {/* Thanh toán / Phương thức (Icon check, bỏ 100%, text font-bold) */}
+                                            {plan ? (
+                                              <div className="flex items-center gap-2 text-[#006ce4]">
+                                                <Check className="w-4 h-4 text-[#006ce4] shrink-0" />
+                                                <span className="text-[#006ce4] font-bold">
+                                                  {plan.paymentPolicy === 'PAY_ONLINE'
+                                                    ? (language === 'vi' ? 'Thanh toán online' : 'Pay online')
+                                                    : plan.paymentPolicy === 'DEPOSIT'
+                                                      ? (language === 'vi' ? `Đặt cọc ${plan.depositType === 'PERCENTAGE' ? plan.depositValue + '%' : Number(plan.depositValue).toLocaleString('vi-VN') + 'đ'} trước` : `Deposit required`)
+                                                      : (language === 'vi' ? 'Thanh toán tại chỗ nghỉ' : 'Pay at property')}
+                                                </span>
+                                              </div>
+                                            ) : (
+                                              rt.paymentPolicy && (
+                                                <div className="flex items-center gap-1.5 text-[#006ce4] font-medium">
                                                   <span>✓</span>
-                                                  <span>{rt.cancellationPolicy === 'NON_REFUNDABLE' ? 'Không hoàn tiền khi hủy' : 'Áp dụng chính sách hủy phòng'}</span>
+                                                  <span>
+                                                    {rt.paymentPolicy === 'PAY_ONLINE'
+                                                      ? (language === 'vi' ? 'Thanh toán trực tuyến' : 'Pay online')
+                                                      : (language === 'vi' ? 'Thanh toán tại chỗ nghỉ' : 'Pay at property')}
+                                                  </span>
                                                 </div>
                                               )
                                             )}
@@ -2335,12 +2855,18 @@ export const HotelDetail: React.FC = () => {
                                       </td>
 
                                       {/* Capacity */}
-                                      <td className="px-3 py-6 w-[10%] border-r border-slate-100">
-                                        <div className="flex justify-center items-center gap-1 text-slate-600">
-                                          {Array.from({ length: Math.min(rt.capacity, 3) }).map((_, i) => (
-                                            <User key={i} className="w-4 h-4 text-slate-500 shrink-0 inline-block" />
-                                          ))}
-                                          {rt.capacity > 3 && <span className="text-xs font-bold">+{rt.capacity - 3}</span>}
+                                      <td className="px-3 py-5 w-[10%] border-r border-slate-100 text-center">
+                                        <div className="flex justify-center items-center gap-1">
+                                          {rt.capacity < 4 ? (
+                                            Array.from({ length: Math.max(1, rt.capacity || 1) }).map((_, i) => (
+                                              <User key={i} className="w-4 h-4 text-slate-700 shrink-0 inline-block" />
+                                            ))
+                                          ) : (
+                                            <div className="flex items-center gap-1 font-bold text-slate-800">
+                                              <User className="w-4 h-4 text-slate-700 shrink-0 inline-block" />
+                                              <span className="text-xs font-bold text-slate-800 leading-none">{rt.capacity}</span>
+                                            </div>
+                                          )}
                                         </div>
                                       </td>
 
@@ -2612,7 +3138,7 @@ export const HotelDetail: React.FC = () => {
               {/* Left Column: Title Box */}
               <div className="md:col-span-1 bg-[#ebf3ff]/50 p-6 rounded-2xl flex flex-col justify-between">
                 <h3 className="font-extrabold text-slate-800 text-base sm:text-lg leading-snug">
-                  {language === 'vi' 
+                  {language === 'vi'
                     ? `Chính sách và những thông tin liên quan của ${hotel.name}`
                     : `Policies and related info of ${hotel.name}`
                   }
@@ -2632,7 +3158,7 @@ export const HotelDetail: React.FC = () => {
                     <div className="md:col-span-7 text-slate-600 space-y-1.5">
                       <p className="font-extrabold text-slate-800">{language === 'vi' ? `Từ ${hotel.checkInTime || '15:00'}` : `From ${hotel.checkInTime || '15:00'}`}</p>
                       <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                        {language === 'vi' 
+                        {language === 'vi'
                           ? 'Khách được yêu cầu xuất trình giấy tờ tùy thân có ảnh và thẻ tín dụng lúc nhận phòng.'
                           : 'Guests are required to show a photo ID and credit card upon check-in.'}
                       </p>
@@ -2662,7 +3188,7 @@ export const HotelDetail: React.FC = () => {
                       <span>{language === 'vi' ? 'Hủy đặt phòng/ Trả trước' : 'Cancellation/ Prepayment'}</span>
                     </div>
                     <div className="md:col-span-7 text-slate-500 font-medium leading-relaxed text-xs">
-                      {language === 'vi' 
+                      {language === 'vi'
                         ? 'Các chính sách hủy và thanh toán trước sẽ khác nhau tùy vào từng loại chỗ nghỉ. Vui lòng nhập ngày lưu trú và xem điều kiện áp dụng cho lựa chọn chỗ nghỉ của bạn.'
                         : 'Cancellation and prepayment policies vary according to accommodation type. Please check what conditions apply to your preferred room.'}
                     </div>
@@ -2680,8 +3206,8 @@ export const HotelDetail: React.FC = () => {
                         <h5 className="font-extrabold text-slate-800 text-xs sm:text-sm">{language === 'vi' ? 'Chính sách trẻ em' : 'Child policies'}</h5>
                         <p className="text-slate-650 text-xs sm:text-sm font-bold">{language === 'vi' ? 'Phù hợp cho tất cả trẻ em.' : 'Suitable for all children.'}</p>
                         <p className="text-slate-600 text-xs sm:text-sm font-medium">
-                          {language === 'vi' 
-                            ? 'Trẻ em từ 3 tuổi trở lên sẽ được tính giá như người lớn tại chỗ nghỉ này.' 
+                          {language === 'vi'
+                            ? 'Trẻ em từ 3 tuổi trở lên sẽ được tính giá như người lớn tại chỗ nghỉ này.'
                             : 'Children aged 3 years and above are considered adults at this property.'}
                         </p>
                         <p className="text-xs text-slate-450 font-medium italic pt-1">
@@ -2694,7 +3220,7 @@ export const HotelDetail: React.FC = () => {
                       {/* Chính sách nôi cũi & giường phụ */}
                       <div className="space-y-3 pt-3 border-t border-slate-100">
                         <h5 className="font-extrabold text-slate-800 text-xs sm:text-sm">{language === 'vi' ? 'Chính sách nôi (cũi) và giường phụ' : 'Crib and extra bed policies'}</h5>
-                        
+
                         {/* Crib details box */}
                         <div className="border border-slate-200 rounded-xl overflow-hidden text-xs max-w-md bg-slate-50/50 shadow-sm">
                           <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 font-extrabold text-slate-700">
@@ -2964,7 +3490,7 @@ export const HotelDetail: React.FC = () => {
                             </div>
                             <div>
                               <h4 className="font-black text-slate-800 text-sm">{rev.user.fullName}</h4>
-                              <span className="text-[10px] text-[#006ce4] font-extrabold">{new Date(rev.createdAt).toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US')}</span>
+                              <span className="text-[10px] text-[#006ce4] font-extrabold">{formatDateVN(rev.createdAt)}</span>
                             </div>
                           </div>
                           <span className="bg-[#ebf3ff] text-[#006ce4] px-3.5 py-1.5 rounded-full font-black text-sm border border-blue-100">
@@ -2974,6 +3500,35 @@ export const HotelDetail: React.FC = () => {
                         <p className="text-sm text-slate-700 leading-relaxed font-semibold pl-1">
                           "{rev.comment}"
                         </p>
+                        {rev.ownerReply && (
+                          <div className="bg-blue-50/70 border border-blue-150 p-3.5 rounded-xl space-y-1 mt-3 text-xs">
+                            <div className="flex justify-between items-center text-[#006ce4] font-black">
+                              <span className="flex items-center gap-1.5">
+                                <Building2 className="w-3.5 h-3.5 text-[#006ce4]" />
+                                {language === 'vi' ? 'Phản hồi từ chủ chỗ nghỉ' : 'Response from property owner'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-bold">
+                                {rev.ownerRepliedAt ? formatDateVN(rev.ownerRepliedAt) : ''}
+                              </span>
+                            </div>
+                            <p className="text-slate-700 font-medium leading-relaxed pl-1">
+                              "{rev.ownerReply}"
+                            </p>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100/60 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => handleLikeReview(rev.id)}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all border cursor-pointer active:scale-95 ${likedReviewIds.includes(rev.id)
+                              ? 'bg-blue-50 text-blue-600 border-blue-200 shadow-2xs'
+                              : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                          >
+                            <ThumbsUp className={`w-3.5 h-3.5 ${likedReviewIds.includes(rev.id) ? 'fill-blue-600 text-blue-600' : ''}`} />
+                            <span>{language === 'vi' ? 'Đánh giá hữu ích' : 'Helpful'} ({rev.likesCount || 0})</span>
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2998,7 +3553,7 @@ export const HotelDetail: React.FC = () => {
       {/* Accommodation Policies Modal */}
       {isPolicyModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
               <h3 className="font-black text-slate-900 text-base sm:text-lg">
@@ -3023,7 +3578,7 @@ export const HotelDetail: React.FC = () => {
                     {language === 'vi' ? 'Nhận phòng sớm' : 'Early Check-in'}
                   </h4>
                   <p className="text-slate-600 font-normal leading-relaxed">
-                    {language === 'vi' 
+                    {language === 'vi'
                       ? 'Bạn có thể nhận phòng sớm hơn giờ quy định của cơ sở lưu trú và có áp dụng phụ phí. Vui lòng liên hệ với cơ sở lưu trú để xác nhận thông tin.'
                       : 'You may request early check-in subject to availability and extra fees. Please contact the property to confirm.'
                     }
@@ -3039,7 +3594,7 @@ export const HotelDetail: React.FC = () => {
                     {language === 'vi' ? 'Trả phòng trễ' : 'Late Check-out'}
                   </h4>
                   <p className="text-slate-600 font-normal leading-relaxed">
-                    {language === 'vi' 
+                    {language === 'vi'
                       ? 'Bạn có thể yêu cầu trả phòng trễ hơn quy định của cơ sở lưu trú và có áp dụng phụ phí. Vui lòng liên hệ với cơ sở lưu trú khi có nhu cầu.'
                       : 'Late check-out can be requested subject to availability and extra fees. Please contact the front desk when needed.'
                     }
@@ -3055,7 +3610,7 @@ export const HotelDetail: React.FC = () => {
                     {language === 'vi' ? 'Hút thuốc' : 'Smoking'}
                   </h4>
                   <p className="text-slate-600 font-normal leading-relaxed">
-                    {language === 'vi' 
+                    {language === 'vi'
                       ? 'Chỉ được phép hút thuốc trong khu vực chỉ định.'
                       : 'Smoking is strictly permitted only in designated outdoor smoking areas.'
                     }
@@ -3071,7 +3626,7 @@ export const HotelDetail: React.FC = () => {
                     {language === 'vi' ? 'Thú cưng' : 'Pets'}
                   </h4>
                   <p className="text-slate-600 font-normal leading-relaxed">
-                    {language === 'vi' 
+                    {language === 'vi'
                       ? 'Không được mang theo thú cưng.'
                       : 'Pets are not allowed on the property premises.'
                     }
@@ -3104,7 +3659,7 @@ export const HotelDetail: React.FC = () => {
                     {language === 'vi' ? 'Đưa đón sân bay' : 'Airport Transfer'}
                   </h4>
                   <p className="text-slate-600 font-normal leading-relaxed">
-                    {language === 'vi' 
+                    {language === 'vi'
                       ? 'Có dịch vụ đưa đón sân bay với mức phí 100,000 VNĐ/người.'
                       : 'Airport shuttle service is available at a rate of 100,000 VND/pax.'
                     }
@@ -3171,8 +3726,8 @@ export const HotelDetail: React.FC = () => {
                     key={tab.id}
                     onClick={() => setSelectedMapCategory(tab.id as any)}
                     className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all shrink-0 uppercase tracking-wider ${selectedMapCategory === tab.id
-                        ? 'bg-[#006ce4] text-white shadow-sm shadow-blue-500/20'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-605'
+                      ? 'bg-[#006ce4] text-white shadow-sm shadow-blue-500/20'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-605'
                       }`}
                   >
                     {tab.label}
@@ -3186,8 +3741,8 @@ export const HotelDetail: React.FC = () => {
                 <div
                   onClick={() => setActiveMapQuery(hotel.name + ' ' + (hotel.address || ''))}
                   className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col gap-1 ${activeMapQuery === hotel.name + ' ' + (hotel.address || '')
-                      ? 'bg-blue-50/50 border-blue-500 shadow-sm'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
+                    ? 'bg-blue-50/50 border-blue-500 shadow-sm'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                 >
                   <div className="flex justify-between items-center">
@@ -3215,8 +3770,8 @@ export const HotelDetail: React.FC = () => {
                         key={idx}
                         onClick={() => setActiveMapQuery(loc.name + ' ' + (hotel.address?.split(',').pop() || ''))}
                         className={`p-3 rounded-xl border transition-all cursor-pointer flex justify-between items-center gap-3 ${activeMapQuery === loc.name + ' ' + (hotel.address?.split(',').pop() || '')
-                            ? 'bg-blue-50/50 border-blue-500 shadow-sm'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                          ? 'bg-blue-50/50 border-blue-500 shadow-sm'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                       >
                         <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 line-clamp-1">
@@ -3230,6 +3785,82 @@ export const HotelDetail: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN HOTEL GALLERY LIGHTBOX MODAL */}
+      {isGalleryModalOpen && hotel && hotel.images && hotel.images.length > 0 && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[999999] flex flex-col justify-between p-4 sm:p-6 animate-in fade-in duration-200 select-none">
+          {/* Top Bar */}
+          <div className="flex justify-between items-center text-white z-10 px-4 pt-2">
+            <div className="flex items-center gap-3">
+              <span className="font-extrabold text-base sm:text-lg tracking-tight text-white">{hotel.name}</span>
+              <span className="text-xs font-bold text-slate-300 bg-white/10 px-3 py-1 rounded-full border border-white/10">
+                {galleryActiveIndex + 1} / {hotel.images.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsGalleryModalOpen(false)}
+              className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all active:scale-95 border border-white/10 shadow-lg cursor-pointer"
+              title="Đóng xem ảnh (ESC)"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Main Photo Container */}
+          <div className="relative flex-1 flex items-center justify-center my-4 overflow-hidden w-full">
+            {/* Prev Button */}
+            {hotel.images.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setGalleryActiveIndex(prev => (prev === 0 ? hotel.images.length - 1 : prev - 1))}
+                className="absolute left-3 sm:left-8 z-30 bg-black/50 hover:bg-black/80 text-white p-3.5 sm:p-4 rounded-full backdrop-blur-md transition-all active:scale-95 border border-white/20 shadow-2xl cursor-pointer"
+              >
+                <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+              </button>
+            )}
+
+            {/* Main Image */}
+            <div className="w-full h-full max-w-6xl max-h-[75vh] flex items-center justify-center p-2">
+              <img
+                src={hotel.images[galleryActiveIndex]?.url}
+                alt={`${hotel.name} photo ${galleryActiveIndex + 1}`}
+                className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl animate-in zoom-in-95 duration-200"
+              />
+            </div>
+
+            {/* Next Button */}
+            {hotel.images.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setGalleryActiveIndex(prev => (prev + 1) % hotel.images.length)}
+                className="absolute right-3 sm:right-8 z-30 bg-black/50 hover:bg-black/80 text-white p-3.5 sm:p-4 rounded-full backdrop-blur-md transition-all active:scale-95 border border-white/20 shadow-2xl cursor-pointer"
+              >
+                <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Thumbnail Strip */}
+          {hotel.images.length > 1 && (
+            <div className="flex justify-center items-center gap-2.5 overflow-x-auto py-2 scrollbar-thin max-w-4xl mx-auto w-full px-4 shrink-0">
+              {hotel.images.map((img, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setGalleryActiveIndex(idx)}
+                  className={`h-14 sm:h-16 w-20 sm:w-24 rounded-xl overflow-hidden shrink-0 transition-all border-2 cursor-pointer ${idx === galleryActiveIndex
+                      ? 'border-amber-400 scale-105 shadow-xl opacity-100 ring-2 ring-amber-400/50'
+                      : 'border-transparent opacity-40 hover:opacity-100'
+                    }`}
+                >
+                  <img src={img.url} alt={`thumb ${idx}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

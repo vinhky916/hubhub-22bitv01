@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../core/api/client';
-import { Heart, MapPin } from 'lucide-react';
+import { Heart, MapPin, Star } from 'lucide-react';
 
 interface FavoriteHotel {
   id: string;
@@ -122,7 +122,7 @@ export const Wishlist: React.FC = () => {
                 </button>
 
                 <div className="absolute top-3 left-3 bg-white/90 backdrop-blur px-2 py-0.5 rounded text-[10px] font-extrabold text-primary flex items-center gap-0.5">
-                  ★ {hotel.starRating} Sao
+                  <Star className="w-3 h-3 text-amber-500 fill-amber-500" /> {hotel.starRating} Sao
                 </div>
               </div>
 

@@ -64,6 +64,21 @@ export class CouponController {
       next(error);
     }
   }
+
+  public async toggle(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { userId, role } = req.user!;
+      const { id } = req.params;
+      const result = await couponUseCase.toggleCouponStatus(userId, role, id);
+      res.status(200).json({
+        success: true,
+        message: result.isActive ? 'Kích hoạt mã giảm giá thành công' : 'Khóa mã giảm giá thành công',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new CouponController();

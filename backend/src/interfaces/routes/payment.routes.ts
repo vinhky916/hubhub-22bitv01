@@ -13,4 +13,11 @@ router.post('/stripe-webhook', paymentController.handleStripeWebhook);
 router.post('/vnpay/url', paymentController.generateVnPayUrl);
 router.get('/vnpay-callback', paymentController.handleVnPayCallback);
 
+// PayPal Sandbox routes
+router.post('/paypal/create-order', paymentController.generatePayPalCheckout);
+router.post('/paypal/checkout', paymentController.generatePayPalCheckout);
+router.post('/paypal/capture-order', paymentController.confirmPayPalPayment);
+router.post('/paypal/confirm', paymentController.confirmPayPalPayment);
+router.get('/paypal-callback', paymentController.handlePayPalCallback);
+
 export default router;

@@ -171,16 +171,31 @@ export class StatsController {
       });
 
       const ownerId = req.user.userId;
+      const reqHotelId = req.query.hotelId as string;
+
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
       // Find owner's hotels
-      const myHotels = await prisma.hotel.findMany({
-        where: { ownerId },
-        select: { id: true }
-      });
-      const myHotelIds = myHotels.map(h => h.id);
+      let myHotelIds: string[] = [];
+      if (reqHotelId && reqHotelId !== 'ALL') {
+        const hotel = await prisma.hotel.findFirst({
+          where: { id: reqHotelId, ownerId },
+          select: { id: true }
+        });
+        if (hotel) {
+          myHotelIds = [hotel.id];
+        }
+      }
+
+      if (myHotelIds.length === 0 && (!reqHotelId || reqHotelId === 'ALL')) {
+        const myHotels = await prisma.hotel.findMany({
+          where: { ownerId },
+          select: { id: true }
+        });
+        myHotelIds = myHotels.map(h => h.id);
+      }
 
       if (myHotelIds.length === 0) {
         return res.status(200).json({
@@ -229,16 +244,39 @@ export class StatsController {
       // Stat 3: Upcoming check-out
       const upcomingCheckOut = ownerBookings.filter(b => b.status === BookingStatus.CHECKED_IN && b.checkOutDate >= startOfToday).length;
 
+      // Stat 4: Overdue check-in (Quá giờ nhận phòng nhưng chưa Check-in)
+      const overdueCheckIn = ownerBookings.filter(b => {
+        const isNotArrived = b.status === BookingStatus.CONFIRMED || b.status === BookingStatus.PENDING || b.status === BookingStatus.PAYMENT_PROCESSING;
+        const isPastCheckIn = b.checkInDate <= now && b.checkOutDate > startOfToday;
+        return isNotArrived && isPastCheckIn;
+      }).length;
+
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
       // Rooms stats
-      const totalRooms = await prisma.room.count({
-        where: {
-          roomType: {
-            hotelId: { in: myHotelIds }
-          }
-        }
+      const roomTypesData = await prisma.roomType.findMany({
+        where: { hotelId: { in: myHotelIds } },
+        include: { rooms: true }
       });
-      
-      const occupiedRooms = ownerBookings.filter(b => b.status === BookingStatus.CHECKED_IN).length;
+
+      const totalRooms = roomTypesData.reduce((sum, rt) => {
+        const capacity = (rt as any).totalRooms || rt.rooms?.length || 1;
+        return sum + capacity;
+      }, 0);
+
+      // Find all bookings covering today
+      const activeBookingsToday = ownerBookings.filter(b => {
+        const isActiveStatus = b.status === BookingStatus.CONFIRMED || b.status === BookingStatus.CHECKED_IN || b.status === BookingStatus.COMPLETED;
+        const bIn = new Date(b.checkInDate);
+        const bOut = new Date(b.checkOutDate);
+        return isActiveStatus && bIn < endOfToday && bOut > startOfToday;
+      });
+
+      const occupiedRooms = activeBookingsToday.reduce((sum, b) => {
+        const qty = b.bookingItems?.reduce((itemSum, item) => itemSum + item.quantity, 0) || 1;
+        return sum + qty;
+      }, 0);
+
       const availableRooms = Math.max(0, totalRooms - occupiedRooms);
 
       // Stat 6: Revenue today
@@ -251,66 +289,119 @@ export class StatsController {
         .filter(b => b.createdAt >= startOfMonth && b.status !== BookingStatus.CANCELLED)
         .reduce((sum, b) => sum + Number(b.finalPrice), 0);
 
-      // Stat 8: Average Rating
+      // Stat 8: Average Rating (scale 10)
       const reviews = await prisma.review.aggregate({
         where: { hotelId: { in: myHotelIds } },
-        _avg: { ratingValue: true }
+        _avg: { ratingOverall: true }
       });
-      const averageRating = reviews._avg.ratingValue ? Number(reviews._avg.ratingValue.toFixed(1)) : 4.5;
+      let averageRating = 0;
+      if (reviews._avg.ratingOverall) {
+        const rawAvg = Number(reviews._avg.ratingOverall);
+        averageRating = rawAvg <= 5 ? Number((rawAvg * 2).toFixed(1)) : Number(rawAvg.toFixed(1));
+      }
 
       // Stat 9: Occupancy rate
-      const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 65;
+      const occupancyRate = totalRooms > 0 ? Math.min(100, Math.round((occupiedRooms / totalRooms) * 100)) : 0;
 
       // Stat 10: Cancellation rate
       const totalCount = ownerBookings.length;
       const cancelledCount = ownerBookings.filter(b => b.status === BookingStatus.CANCELLED).length;
-      const cancellationRate = totalCount > 0 ? Math.round((cancelledCount / totalCount) * 100) : 5;
+      const cancellationRate = totalCount > 0 ? Math.round((cancelledCount / totalCount) * 100) : 0;
 
-      // Chart: last 7 days revenue for owner
+      // Chart Data Generation based on timeFrame parameter (month | week | day)
+      const timeFrame = (req.query.timeFrame as string) || 'month';
       const chartData = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
 
-        const dayBookings = ownerBookings.filter(b => b.createdAt >= dayStart && b.createdAt <= dayEnd && b.status !== BookingStatus.CANCELLED);
-        const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.finalPrice), 0);
-        const formattedDate = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+      if (timeFrame === 'day') {
+        // Last 7 days
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+          const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 
-        chartData.push({
-          name: formattedDate,
-          DoanhThu: dayRevenue,
-          Bookings: dayBookings.length
-        });
+          const dayBookings = ownerBookings.filter(
+            b => b.createdAt >= dayStart && b.createdAt <= dayEnd && b.status !== BookingStatus.CANCELLED && b.status !== BookingStatus.REFUNDED
+          );
+          const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.finalPrice), 0);
+          const formattedDate = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+
+          chartData.push({
+            name: formattedDate,
+            DoanhThu: dayRevenue,
+            Bookings: dayBookings.length
+          });
+        }
+      } else if (timeFrame === 'week') {
+        // Current Week (Monday to Sunday)
+        const d = new Date(now);
+        const dayOfWeek = d.getDay();
+        const diffToMonday = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diffToMonday));
+        monday.setHours(0, 0, 0, 0);
+
+        const dayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+        for (let i = 0; i < 7; i++) {
+          const dayStart = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i, 0, 0, 0);
+          const dayEnd = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i, 23, 59, 59, 999);
+
+          const dayBookings = ownerBookings.filter(
+            b => b.createdAt >= dayStart && b.createdAt <= dayEnd && b.status !== BookingStatus.CANCELLED && b.status !== BookingStatus.REFUNDED
+          );
+          const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.finalPrice), 0);
+          const formattedLabel = `${dayLabels[i]} (${dayStart.getDate().toString().padStart(2, '0')}/${(dayStart.getMonth() + 1).toString().padStart(2, '0')})`;
+
+          chartData.push({
+            name: formattedLabel,
+            DoanhThu: dayRevenue,
+            Bookings: dayBookings.length
+          });
+        }
+      } else {
+        // Default: Current Month view (every day in the current month)
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+        for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+          const dayStart = new Date(currentYear, currentMonth, dayNum, 0, 0, 0);
+          const dayEnd = new Date(currentYear, currentMonth, dayNum, 23, 59, 59, 999);
+
+          const dayBookings = ownerBookings.filter(
+            b => b.createdAt >= dayStart && b.createdAt <= dayEnd && b.status !== BookingStatus.CANCELLED && b.status !== BookingStatus.REFUNDED
+          );
+          const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.finalPrice), 0);
+          const formattedDate = `${dayNum.toString().padStart(2, '0')}/${(currentMonth + 1).toString().padStart(2, '0')}`;
+
+          chartData.push({
+            name: formattedDate,
+            DoanhThu: dayRevenue,
+            Bookings: dayBookings.length
+          });
+        }
       }
 
       // Chart: occupancy by room types (REAL DATA)
-      const roomTypesData = await prisma.roomType.findMany({
-        where: { hotelId: { in: myHotelIds } },
-        include: { rooms: true }
-      });
-
-      const colors = ['#0194f3', '#10B981', '#F59E0B', '#EC4899'];
+      const colors = ['#2563EB', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6'];
       const occupancyData = [];
 
       for (let idx = 0; idx < roomTypesData.length; idx++) {
         const rt = roomTypesData[idx];
-        const totalRoomsInType = rt.rooms.length;
+        const rtCapacity = (rt as any).totalRooms || rt.rooms?.length || 1;
 
-        // Đếm số phòng đang bị chiếm bởi booking CHECKED_IN chồng lên ngày hôm nay
-        const occupiedCount = await prisma.booking.count({
-          where: {
-            status: BookingStatus.CHECKED_IN,
-            checkInDate: { lte: now },
-            checkOutDate: { gt: now },
-            bookingItems: {
-              some: { roomTypeId: rt.id }
-            }
-          }
-        });
+        const rtBookingsToday = activeBookingsToday.filter(b =>
+          b.bookingItems?.some(item => item.roomTypeId === rt.id)
+        );
 
-        const rate = totalRoomsInType > 0 ? Math.round((occupiedCount / totalRoomsInType) * 100) : 0;
+        const rtOccupiedRooms = rtBookingsToday.reduce((sum, b) => {
+          const itemQty = b.bookingItems
+            .filter(item => item.roomTypeId === rt.id)
+            .reduce((iSum, item) => iSum + item.quantity, 0);
+          return sum + itemQty;
+        }, 0);
+
+        const rate = rtCapacity > 0 ? Math.min(100, Math.round((rtOccupiedRooms / rtCapacity) * 100)) : 0;
 
         occupancyData.push({
           name: rt.name,
@@ -354,6 +445,7 @@ export class StatsController {
             todayBookings,
             upcomingCheckIn,
             upcomingCheckOut,
+            overdueCheckIn,
             availableRooms,
             occupiedRooms,
             revenueToday,

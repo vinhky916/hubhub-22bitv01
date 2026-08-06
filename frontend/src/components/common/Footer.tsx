@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
-import { Sparkles, Heart } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 const footerTranslations = {
   vi: {
@@ -21,8 +21,6 @@ const footerTranslations = {
     partnerText: 'Đăng ký khách sạn của bạn và tiếp cận hàng triệu khách hàng toàn quốc.',
     partnerBtn: 'Đăng ký chủ khách sạn',
     copyright: '© 2026 CloudBooking.AI. Bảo lưu mọi quyền.',
-    craftedWith: 'Xây dựng với',
-    byTeam: 'bởi Đội ngũ Antigravity AI'
   },
   en: {
     tagline: 'Modern hotel booking platform integrated with a smart AI assistant searching rooms using natural language.',
@@ -40,8 +38,6 @@ const footerTranslations = {
     partnerText: 'Register your properties and reach millions of guests nationwide.',
     partnerBtn: 'Register as Hotel Owner',
     copyright: '© 2026 CloudBooking.AI. All rights reserved.',
-    craftedWith: 'Crafted with',
-    byTeam: 'by Antigravity AI Team'
   }
 };
 
@@ -90,12 +86,9 @@ export const Footer: React.FC = () => {
             </Link>
           </div>
         </div>
-        <hr className="border-slate-800 my-8"/>
+        <hr className="border-slate-800 my-8" />
         <div className="flex flex-col md:flex-row justify-between items-center text-xs text-slate-500 gap-4">
           <p>{t.copyright}</p>
-          <p className="flex items-center gap-1">
-            {t.craftedWith} <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500"/> {t.byTeam}
-          </p>
         </div>
       </div>
     </footer>

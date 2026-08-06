@@ -3,6 +3,9 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
+import { formatFullDateVN } from '../utils/date';
+import { formatPrice } from '../utils/price';
+import { useModal } from '../components/common/ModalContext';
 import {
   Lock,
   ShieldCheck,
@@ -13,7 +16,18 @@ import {
   Bed,
   Utensils,
   Calendar,
-  XCircle
+  XCircle,
+  AlertTriangle,
+  Sparkles,
+  Bell,
+  Hotel,
+  ThumbsUp,
+  Building,
+  CreditCard,
+  FileText,
+  Gift,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 
 interface BookingDetail {
@@ -39,7 +53,9 @@ interface BookingDetail {
     roomType: {
       name: string;
       bedCount: number;
+      bedType?: string | null;
       includeBreakfast?: boolean;
+      paymentPolicy?: string | null;
       hotel: {
         name: string;
         address: string;
@@ -52,11 +68,26 @@ interface BookingDetail {
   }[];
 }
 
+const isHotelPaymentAllowed = (b: BookingDetail | null): boolean => {
+  if (!b || !b.bookingItems || b.bookingItems.length === 0) return false;
+  return b.bookingItems.every((item) => {
+    const snap = (item.paymentPolicySnapshot || '').toLowerCase();
+    const roomPolicy = (item.roomType?.paymentPolicy || '').toUpperCase();
+
+    if ((snap.includes('online 100%') || roomPolicy === 'PAY_ONLINE') && !snap.includes('khách sạn') && !snap.includes('trả tại')) {
+      return false;
+    }
+
+    return true;
+  });
+};
+
 export const Payment: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const bookingId = searchParams.get('bookingId');
-  const { language } = useSelector((state: RootState) => state.settings);
+  const { language, currency } = useSelector((state: RootState) => state.settings);
+  const { showAlert } = useModal();
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +95,8 @@ export const Payment: React.FC = () => {
 
   // Payment option selected (Accordion style)
   const [activeOption, setActiveOption] = useState<'card' | 'vietqr' | 'vietinbank' | 'wallet' | 'mobile' | 'store' | 'hotel'>('card');
-  const [subWallet, setSubWallet] = useState<'momo' | 'zalopay' | 'shopeepay' | 'vnpay'>('momo');
+  const [subWallet, setSubWallet] = useState<'momo' | 'zalopay' | 'shopeepay' | 'vnpay' | 'paypal'>('momo');
+  const [paypalRedirecting, setPaypalRedirecting] = useState(false);
 
   // Form states for Credit Card
   const [cardNumber, setCardNumber] = useState('');
@@ -149,9 +181,9 @@ export const Payment: React.FC = () => {
         setBooking(res.data.data);
         if (couponInput) {
           setCouponSuccessMessage(
-            language === 'vi' 
-              ? `Áp dụng mã giảm giá thành công: giảm -${Number(res.data.data.discountAmount).toLocaleString('vi-VN')} đ` 
-              : `Successfully applied code: saved -${Number(res.data.data.discountAmount).toLocaleString('vi-VN')} VND`
+            language === 'vi'
+              ? `Áp dụng mã giảm giá thành công: giảm -${formatPrice(Number(res.data.data.discountAmount), currency)}`
+              : `Successfully applied code: saved -${formatPrice(Number(res.data.data.discountAmount), currency)}`
           );
         }
         // Refresh available loyalty points
@@ -193,19 +225,18 @@ export const Payment: React.FC = () => {
     }
   };
 
-
-
   useEffect(() => {
-    if (!bookingId) {
-      navigate('/');
-      return;
-    }
-
     const fetchBooking = async () => {
+      if (!bookingId) {
+        setError(language === 'vi' ? 'Mã đơn đặt phòng không hợp lệ.' : 'Invalid booking ID.');
+        setLoading(false);
+        return;
+      }
+
       try {
-        const res = await apiClient.get(`/bookings/${bookingId}`);
-        if (res.data.success) {
-          const fetchedBooking = res.data.data;
+        const response = await apiClient.get(`/bookings/${bookingId}`);
+        if (response.data.success && response.data.data) {
+          const fetchedBooking = response.data.data;
           setBooking(fetchedBooking);
           if (fetchedBooking.status === 'PENDING' || fetchedBooking.status === 'PAYMENT_PROCESSING') {
             const elapsed = Math.floor((Date.now() - new Date(fetchedBooking.createdAt).getTime()) / 1000);
@@ -215,10 +246,13 @@ export const Payment: React.FC = () => {
             setSecondsLeft(999999);
           }
 
-          // Tự động chọn phương thức Thanh toán tại khách sạn nếu chính sách yêu cầu
+          // Tự động chọn phương thức Thanh toán tại khách sạn nếu phòng cho phép và chính sách yêu cầu
+          const canPayAtHotel = isHotelPaymentAllowed(fetchedBooking);
           const firstItem = fetchedBooking.bookingItems?.[0];
-          if (firstItem?.paymentPolicySnapshot?.toLowerCase().includes('khách sạn') || firstItem?.paymentPolicySnapshot?.includes('PAY_AT_HOTEL')) {
+          if (canPayAtHotel && (firstItem?.paymentPolicySnapshot?.toLowerCase().includes('khách sạn') || firstItem?.paymentPolicySnapshot?.includes('PAY_AT_HOTEL'))) {
             setActiveOption('hotel');
+          } else if (!canPayAtHotel) {
+            setActiveOption('card');
           }
         } else {
           setError(language === 'vi' ? 'Không thể tải thông tin đặt phòng.' : 'Could not load booking details.');
@@ -259,25 +293,6 @@ export const Payment: React.FC = () => {
         .catch((err) => console.error('Failed to auto-cancel expired booking:', err));
     }
   }, [secondsLeft, bookingId, booking?.status]);
-
-  const handleCancelBooking = async () => {
-    const confirmCancel = window.confirm(
-      language === 'vi'
-        ? 'Bạn có chắc chắn muốn hủy giữ phòng cho đơn này? Phòng đang giữ sẽ lập tức được giải phóng cho khách hàng khác.'
-        : 'Are you sure you want to cancel this booking? Held rooms will be released immediately.'
-    );
-    if (!confirmCancel || !bookingId) return;
-
-    try {
-      await apiClient.put(`/bookings/${bookingId}/status`, { status: 'CANCELLED' });
-      setBooking((prev) => (prev ? { ...prev, status: 'CANCELLED' } : null));
-      alert(language === 'vi' ? 'Đã hủy đơn đặt phòng thành công.' : 'Booking cancelled successfully.');
-      navigate('/');
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.message || (language === 'vi' ? 'Lỗi khi hủy đơn đặt phòng.' : 'Error cancelling booking.'));
-    }
-  };
 
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
@@ -344,11 +359,71 @@ export const Payment: React.FC = () => {
         window.location.href = res.data.data.paymentUrl;
       } else {
         setVnpayRedirecting(false);
-        alert(language === 'vi' ? 'Không thể tạo liên kết thanh toán VNPay.' : 'Cannot generate VNPay payment URL.');
+        await showAlert(language === 'vi' ? 'Không thể tạo liên kết thanh toán VNPay.' : 'Cannot generate VNPay payment URL.', { type: 'error' });
       }
     } catch (err: any) {
       setVnpayRedirecting(false);
-      alert(err.response?.data?.message || (language === 'vi' ? 'Lỗi kết nối VNPay.' : 'VNPay connection error.'));
+      await showAlert(err.response?.data?.message || (language === 'vi' ? 'Lỗi kết nối VNPay.' : 'VNPay connection error.'), { type: 'error' });
+    }
+  };
+
+  // PayPal Standard Checkout Flow states
+  const [paypalModalOpen, setPaypalModalOpen] = useState(false);
+  const [paypalStep, setPaypalStep] = useState<'CREATE' | 'AUTHENTICATE' | 'APPROVE' | 'CAPTURING' | 'SUCCESS'>('CREATE');
+  const [paypalOrderData, setPaypalOrderData] = useState<{ orderId: string; amountUsd: number; approveUrl?: string } | null>(null);
+  const [paypalBuyerEmail, setPaypalBuyerEmail] = useState('sb-customer@business.example.com');
+  const [paypalBuyerPass, setPaypalBuyerPass] = useState('SandboxPass123');
+
+  const handleStartPayPalCheckout = async () => {
+    if (!bookingId) {
+      await showAlert(language === 'vi' ? 'Không tìm thấy mã đơn đặt phòng để thanh toán.' : 'Booking ID missing.', { type: 'error' });
+      return;
+    }
+    setPaypalRedirecting(true);
+    try {
+      // Gọi API backend tạo PayPal Order và lấy liên kết PayPal Sandbox Redirect
+      const res = await apiClient.post('/payment/paypal/create-order', {
+        bookingId,
+        frontendUrl: window.location.origin,
+      });
+
+      if (res.data.success && res.data.data?.approveUrl) {
+        // Chuyển hướng trực tiếp trang hiện tại sang Cổng giao dịch PayPal Sandbox
+        window.location.href = res.data.data.approveUrl;
+      } else {
+        setPaypalRedirecting(false);
+        await showAlert(res.data?.message || (language === 'vi' ? 'Không thể tạo liên kết thanh toán PayPal Sandbox.' : 'Cannot generate PayPal payment URL.'), { type: 'error' });
+      }
+    } catch (err: any) {
+      setPaypalRedirecting(false);
+      const errMsg = err.response?.data?.message || err.message || (language === 'vi' ? 'Lỗi kết nối PayPal Sandbox.' : 'PayPal connection error.');
+      await showAlert(errMsg, { type: 'error' });
+    }
+  };
+
+  const handlePayPalOnApproveAndCapture = async () => {
+    if (!paypalOrderData) return;
+    setPaypalStep('CAPTURING');
+    try {
+      // 3. CAPTURE ORDER (Gọi API backend /payment/paypal/capture-order với orderId)
+      const confirmRes = await apiClient.post('/payment/paypal/capture-order', {
+        bookingId,
+        orderId: paypalOrderData.orderId
+      });
+
+      if (confirmRes.data.success) {
+        setPaypalStep('SUCCESS');
+        setTimeout(() => {
+          setPaypalModalOpen(false);
+          navigate(`/my-bookings?payment=success&bookingId=${bookingId}&method=paypal`);
+        }, 1200);
+      } else {
+        setPaypalStep('AUTHENTICATE');
+        await showAlert(language === 'vi' ? 'Không thể thực hiện Capture giao dịch trên PayPal.' : 'PayPal Capture failed.', { type: 'error' });
+      }
+    } catch (err: any) {
+      setPaypalStep('AUTHENTICATE');
+      await showAlert(err.response?.data?.message || 'Lỗi Capture giao dịch PayPal', { type: 'error' });
     }
   };
 
@@ -366,12 +441,12 @@ export const Payment: React.FC = () => {
           }, 800);
         } else {
           setSubmitLoading(false);
-          alert(language === 'vi' ? 'Xác nhận thất bại. Vui lòng thử lại.' : 'Confirmation failed. Please try again.');
+          await showAlert(language === 'vi' ? 'Xác nhận thất bại. Vui lòng thử lại.' : 'Confirmation failed. Please try again.', { type: 'error' });
         }
       } catch (err: any) {
         console.error(err);
         setSubmitLoading(false);
-        alert(err.response?.data?.message || (language === 'vi' ? 'Lỗi xác nhận đơn hàng.' : 'Error confirming booking.'));
+        await showAlert(err.response?.data?.message || (language === 'vi' ? 'Lỗi xác nhận đơn hàng.' : 'Error confirming booking.'), { type: 'error' });
       }
       return;
     }
@@ -382,11 +457,20 @@ export const Payment: React.FC = () => {
       return;
     }
 
+    // Nếu chọn ví PayPal Sandbox → mở quy trình PayPal Standard Checkout
+    if (activeOption === 'wallet' && subWallet === 'paypal') {
+      await handleStartPayPalCheckout();
+      return;
+    }
+
     // Các phương thức khác ngoài card → thông báo demo
     if (activeOption !== 'card') {
-      alert(language === 'vi'
-        ? 'Phương thức này chỉ đang demo. Vui lòng chọn Thẻ thanh toán, VNPay hoặc Thanh toán tại khách sạn.'
-        : 'This method is demo only. Please use Credit Card, VNPay or Pay at Hotel.');
+      await showAlert(
+        language === 'vi'
+          ? 'Phương thức này chỉ đang demo. Vui lòng chọn Thẻ thanh toán, VNPay hoặc Thanh toán tại khách sạn.'
+          : 'This method is demo only. Please use Credit Card, VNPay or Pay at Hotel.',
+        { type: 'info', title: 'Thông báo phương thức thanh toán' }
+      );
       return;
     }
 
@@ -410,12 +494,12 @@ export const Payment: React.FC = () => {
             }, 1000);
           } else {
             setSubmitLoading(false);
-            alert(language === 'vi' ? 'Thanh toán thất bại. Vui lòng thử lại.' : 'Payment failed. Please try again.');
+            await showAlert(language === 'vi' ? 'Thanh toán thất bại. Vui lòng thử lại.' : 'Payment failed. Please try again.', { type: 'error' });
           }
         } catch (err: any) {
           console.error(err);
           setSubmitLoading(false);
-          alert(err.response?.data?.message || (language === 'vi' ? 'Lỗi kết nối cổng thanh toán.' : 'Payment gateway connection error.'));
+          await showAlert(err.response?.data?.message || (language === 'vi' ? 'Lỗi kết nối cổng thanh toán.' : 'Payment gateway connection error.'), { type: 'error' });
         }
       }, 1500);
     }, 1500);
@@ -423,17 +507,11 @@ export const Payment: React.FC = () => {
 
   // Helper date formats
   const formatVietnameseDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const shortDays = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-    return `${shortDays[date.getDay()]}, ${date.getDate()} thg ${date.getMonth() + 1} ${date.getFullYear()}`;
+    return formatFullDateVN(dateStr);
   };
 
   const formatEnglishDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return `${daysOfWeek[date.getDay()]}, ${date.toLocaleString('en-US', { month: 'short' })} ${date.getDate()} ${date.getFullYear()}`;
+    return formatFullDateVN(dateStr);
   };
 
   const getNightsCount = () => {
@@ -448,7 +526,7 @@ export const Payment: React.FC = () => {
   if (loading) {
     return (
       <div className="max-w-[1350px] mx-auto px-4 py-20 flex flex-col items-center justify-center gap-4 text-slate-500 font-semibold">
-        <span className="animate-spin text-3xl">⌛</span>
+        <Clock className="w-8 h-8 text-blue-600 animate-spin" />
         <span>{language === 'vi' ? 'Đang tải thông tin thanh toán...' : 'Loading secure checkout details...'}</span>
       </div>
     );
@@ -457,7 +535,7 @@ export const Payment: React.FC = () => {
   if (error || !booking) {
     return (
       <div className="max-w-[1350px] mx-auto px-4 py-20 text-center space-y-4">
-        <h2 className="text-xl font-bold text-red-500">⚠️ {language === 'vi' ? 'Đã xảy ra lỗi' : 'An error occurred'}</h2>
+        <h2 className="text-xl font-bold text-red-500 flex items-center justify-center gap-1.5"><AlertTriangle className="w-6 h-6 text-red-500" /> {language === 'vi' ? 'Đã xảy ra lỗi' : 'An error occurred'}</h2>
         <p className="text-slate-600 font-bold">{error || (language === 'vi' ? 'Không tìm thấy thông tin đặt phòng.' : 'Booking details not found.')}</p>
         <button
           onClick={() => navigate('/')}
@@ -480,8 +558,10 @@ export const Payment: React.FC = () => {
       <header className="bg-white shadow-sm border-b border-slate-100 py-3 mb-4">
         <div className="max-w-[1350px] mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-            <span className="text-[#0194f3] font-black text-2xl tracking-tighter">CloudBooking</span>
-            <div className="w-5 h-5 bg-[#0194f3] rounded-full flex items-center justify-center text-white text-[10px] font-bold">☁</div>
+            <Sparkles className="w-6 h-6 text-primary animate-pulse" />
+            <span className="text-primary font-black text-2xl tracking-tighter">
+              CloudBooking<span className="text-secondary">.AI</span>
+            </span>
           </div>
           <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
             <Lock className="w-3.5 h-3.5 text-emerald-500" />
@@ -527,27 +607,16 @@ export const Payment: React.FC = () => {
                   {(booking.status === 'PENDING' || booking.status === 'PAYMENT_PROCESSING') && (
                     <div className="bg-[#0052cc] text-white py-3.5 px-5 flex flex-wrap justify-between items-center gap-3 shadow-inner">
                       <p className="text-xs sm:text-sm font-bold flex items-center gap-2">
-                        <span>🔔</span>
+                        <Bell className="w-4 h-4 text-amber-300" />
                         <span>
                           {language === 'vi'
                             ? 'Đừng lo lắng, giá vẫn giữ nguyên. Hoàn tất thanh toán của bạn bằng'
                             : 'Do not worry, price is locked. Complete your payment in'}
                         </span>
                       </p>
-                      <div className="flex items-center gap-2.5">
-                        <div className="bg-[#003d99] px-3.5 py-1.5 rounded-lg text-sm font-black tracking-wider flex items-center gap-1.5 shrink-0">
-                          <Clock className="w-4 h-4 animate-pulse text-amber-300" />
-                          <span>{formatTime(secondsLeft)}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleCancelBooking}
-                          className="bg-red-500/80 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 active:scale-95 cursor-pointer"
-                          title={language === 'vi' ? 'Hủy đơn đặt phòng này' : 'Cancel this booking'}
-                        >
-                          <XCircle className="w-3.5 h-3.5" />
-                          <span>{language === 'vi' ? 'Hủy phòng' : 'Cancel'}</span>
-                        </button>
+                      <div className="bg-[#003d99] px-3.5 py-1.5 rounded-lg text-sm font-black tracking-wider flex items-center gap-1.5 shrink-0">
+                        <Clock className="w-4 h-4 animate-pulse text-amber-300" />
+                        <span>{formatTime(secondsLeft)}</span>
                       </div>
                     </div>
                   )}
@@ -560,45 +629,47 @@ export const Payment: React.FC = () => {
                   </div>
 
                   {/* Accordion List */}
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-[#E2E8F0]">
 
-                    {/* 0. Pay at Hotel Option */}
-                    <div className="bg-white">
-                      <button
-                        type="button"
-                        onClick={() => setActiveOption('hotel')}
-                        className="w-full px-6 py-4 flex justify-between items-center hover:bg-[#ebf3ff]/40 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="radio"
-                            name="payment_opt"
-                            checked={activeOption === 'hotel'}
-                            readOnly
-                            className="w-4.5 h-4.5 text-[#0194f3]"
-                          />
-                          <span className={activeOption === 'hotel' ? "text-[18px] font-extrabold text-slate-900 flex items-center gap-2" : "text-[16px] font-bold text-slate-700 flex items-center gap-2"}>
-                            <span>🏨</span>
-                            <span>{language === 'vi' ? 'Thanh toán khi nhận phòng tại khách sạn' : 'Pay at hotel upon check-in'}</span>
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full uppercase shrink-0">
-                          {language === 'vi' ? 'Trả tại khách sạn' : 'Pay at hotel'}
-                        </span>
-                      </button>
-                      {activeOption === 'hotel' && (
-                        <div className="px-6 pb-6 pt-3 space-y-3 bg-emerald-50/40 border-t border-emerald-100 text-xs font-semibold text-slate-700">
-                          <div className="flex items-start gap-2.5 text-emerald-900 bg-white p-3.5 rounded-xl border border-emerald-200/80 shadow-xs">
-                            <span className="text-base shrink-0">👍</span>
-                            <p className="leading-relaxed">
-                              {language === 'vi'
-                                ? 'Bạn không cần phải thanh toán trực tuyến ngay bây giờ. Phòng của bạn sẽ được xác nhận giữ chỗ ngay lập tức. Bạn chỉ cần xuất trình phiếu đặt phòng và thanh toán tiền mặt/cà thẻ khi nhận phòng tại khách sạn.'
-                                : 'No online payment required now. Your reservation will be confirmed immediately. Present your voucher and pay upon check-in.'}
-                            </p>
+                    {/* 0. Pay at Hotel Option - Chỉ hiển thị khi phòng cho phép thanh toán tại khách sạn */}
+                    {isHotelPaymentAllowed(booking) && (
+                      <div className="bg-white">
+                        <button
+                          type="button"
+                          onClick={() => setActiveOption('hotel')}
+                          className="w-full px-6 py-4 flex justify-between items-center hover:bg-[#ebf3ff]/40 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="radio"
+                              name="payment_opt"
+                              checked={activeOption === 'hotel'}
+                              readOnly
+                              className="w-4.5 h-4.5 text-[#0194f3]"
+                            />
+                            <span className={activeOption === 'hotel' ? "text-[18px] font-extrabold text-slate-900 flex items-center gap-2" : "text-[16px] font-bold text-slate-700 flex items-center gap-2"}>
+                              <Hotel className="w-5 h-5 text-blue-600" />
+                              <span>{language === 'vi' ? 'Thanh toán khi nhận phòng tại khách sạn' : 'Pay at hotel upon check-in'}</span>
+                            </span>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                          <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full uppercase shrink-0">
+                            {language === 'vi' ? 'Trả tại khách sạn' : 'Pay at hotel'}
+                          </span>
+                        </button>
+                        {activeOption === 'hotel' && (
+                          <div className="px-6 pb-6 pt-3 space-y-3 bg-emerald-50/40 border-t border-emerald-100 text-xs font-semibold text-slate-700">
+                            <div className="flex items-start gap-2.5 text-emerald-900 bg-white p-3.5 rounded-xl border border-emerald-200/80 shadow-xs">
+                              <ThumbsUp className="w-5 h-5 text-emerald-600 shrink-0" />
+                              <p className="leading-relaxed">
+                                {language === 'vi'
+                                  ? 'Bạn không cần phải thanh toán trực tuyến ngay bây giờ. Phòng của bạn sẽ được xác nhận giữ chỗ ngay lập tức. Bạn chỉ cần xuất trình phiếu đặt phòng và thanh toán tiền mặt/cà thẻ khi nhận phòng tại khách sạn.'
+                                  : 'No online payment required now. Your reservation will be confirmed immediately. Present your voucher and pay upon check-in.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* 1. Credit Card Option */}
                     <div className="bg-white">
@@ -743,11 +814,11 @@ export const Payment: React.FC = () => {
                       {activeOption === 'vietinbank' && (
                         <div className="px-6 pb-6 pt-4 space-y-2 bg-slate-50/30 border-t border-slate-50 text-xs font-semibold text-slate-650">
                           <p>{language === 'vi' ? 'Vui lòng thực hiện chuyển khoản đến tài khoản bên dưới:' : 'Please transfer to the following bank account:'}</p>
-                          <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1">
-                            <p>🏦 {language === 'vi' ? 'Ngân hàng: VietinBank' : 'Bank: VietinBank'}</p>
-                            <p>💳 {language === 'vi' ? 'Số tài khoản: 102873492834' : 'Account No: 102873492834'}</p>
-                            <p>👤 {language === 'vi' ? 'Tên thụ hưởng: CLOUDBOOKING JOINT STOCK' : 'Beneficiary: CLOUDBOOKING JOINT STOCK'}</p>
-                            <p>📝 {language === 'vi' ? `Nội dung chuyển khoản: CBOOK ${bookingId}` : `Reference code: CBOOK ${bookingId}`}</p>
+                          <div className="bg-white p-3 rounded-lg border border-slate-100 space-y-1.5">
+                            <p className="flex items-center gap-1.5"><Building className="w-4 h-4 text-blue-600 shrink-0" /> {language === 'vi' ? 'Ngân hàng: VietinBank' : 'Bank: VietinBank'}</p>
+                            <p className="flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-emerald-600 shrink-0" /> {language === 'vi' ? 'Số tài khoản: 102873492834' : 'Account No: 102873492834'}</p>
+                            <p className="flex items-center gap-1.5"><User className="w-4 h-4 text-indigo-600 shrink-0" /> {language === 'vi' ? 'Tên thụ hưởng: CLOUDBOOKING JOINT STOCK' : 'Beneficiary: CLOUDBOOKING JOINT STOCK'}</p>
+                            <p className="flex items-center gap-1.5"><FileText className="w-4 h-4 text-amber-600 shrink-0" /> {language === 'vi' ? `Nội dung chuyển khoản: CBOOK ${bookingId}` : `Reference code: CBOOK ${bookingId}`}</p>
                           </div>
                         </div>
                       )}
@@ -777,6 +848,7 @@ export const Payment: React.FC = () => {
                           <img src="/zalopay.jpg" alt="ZaloPay" className="h-[26px] w-[26px] rounded-lg object-contain border border-slate-100" />
                           <img src="/shopeepay.jpg" alt="ShopeePay" className="h-[26px] w-[26px] rounded-lg object-contain border border-slate-100" />
                           <img src="/vnpay.jpg" alt="VNPAY" className="h-[26px] w-[26px] rounded-lg object-contain border border-slate-100" />
+                          <img src="/paypal.jpg" alt="PayPal" className="h-[26px] w-[26px] rounded-lg object-contain border border-slate-100" />
                         </div>
                       </button>
                       {activeOption === 'wallet' && (
@@ -858,11 +930,53 @@ export const Payment: React.FC = () => {
                                   readOnly
                                   className="w-4 h-4 text-[#0194f3]"
                                 />
-                                <span className="text-xs font-black text-slate-800">VNPay</span>
+                                <span className="text-xs font-black text-slate-800">Cổng VNPAY</span>
                               </div>
-                              <img src="/vnpay.jpg" alt="VNPAY" className="w-10 h-10 rounded-xl object-contain border border-blue-100" />
+                              <img src="/vnpay.jpg" alt="VNPAY" className="w-10 h-10 rounded-xl object-contain border border-red-100" />
+                            </label>
+
+                            {/* PayPal Sandbox */}
+                            <label
+                              onClick={() => setSubWallet('paypal')}
+                              className={`flex justify-between items-center bg-white border rounded-xl p-3.5 cursor-pointer transition-all hover:shadow-sm ${subWallet === 'paypal' ? 'border-[#003087] ring-1 ring-[#003087] bg-blue-50/20' : 'border-slate-200'
+                                }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <input
+                                  type="radio"
+                                  name="sub_wallet"
+                                  value="paypal"
+                                  checked={subWallet === 'paypal'}
+                                  readOnly
+                                  className="w-4 h-4 text-[#003087]"
+                                />
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-black text-slate-800 flex items-center gap-2">
+                                    Ví PayPal Sandbox (USD / Quốc tế)
+                                  </span>
+                                </div>
+                              </div>
+                              <img src="/paypal.jpg" alt="PayPal" className="w-10 h-10 rounded-xl object-contain border border-red-100" />
                             </label>
                           </div>
+
+                          {/* PayPal Sandbox Info Box */}
+                          {booking && subWallet === 'paypal' && (
+                            <div className="mt-3 bg-blue-50/70 border border-blue-200 p-4 rounded-xl space-y-2 text-xs text-slate-700 animate-in fade-in duration-200">
+                              <div className="flex justify-between items-center font-extrabold text-slate-900 border-b border-blue-200/60 pb-2">
+                                <span className="flex items-center gap-1.5 text-[#003087]">
+                                  💳 Thông tin quy đổi PayPal Sandbox
+                                </span>
+                                <span className="text-[#003087] font-black text-sm">
+                                  ${(booking.finalPrice / 25000).toFixed(2)} USD
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
+                                <p><strong>Tỷ giá quy đổi:</strong> 1 USD = 25,000 VND</p>
+                                <p><strong>Tổng thanh toán:</strong> {formatPrice(booking.finalPrice, currency)}</p>
+                              </div>
+                            </div>
+                          )}
 
                         </div>
                       )}
@@ -919,14 +1033,14 @@ export const Payment: React.FC = () => {
                 {user && booking && (
                   <div className="bg-white border border-slate-150 p-6 rounded-2xl shadow-sm space-y-4 mb-4 mt-4">
                     <div className="flex items-start gap-2.5 border-b border-slate-50 pb-3">
-                      <span className="text-xl">🎁</span>
+                      <Gift className="w-6 h-6 text-pink-500 shrink-0" />
                       <div>
                         <h3 className="font-extrabold text-slate-800 text-base">
                           {language === 'vi' ? 'Khuyến mãi & Điểm tích lũy' : 'Coupons & Loyalty Points'}
                         </h3>
                         <p className="text-xs text-slate-400 font-medium">
-                          {language === 'vi' 
-                            ? 'Áp dụng mã giảm giá hoặc đổi điểm Loyalty để giảm trực tiếp vào hóa đơn thanh toán.' 
+                          {language === 'vi'
+                            ? 'Áp dụng mã giảm giá hoặc đổi điểm Loyalty để giảm trực tiếp vào hóa đơn thanh toán.'
                             : 'Apply a promo code or redeem loyalty points to save on your bill.'}
                         </p>
                       </div>
@@ -957,10 +1071,10 @@ export const Payment: React.FC = () => {
                           </button>
                         </div>
                         {couponSuccessMessage && (
-                          <p className="text-[10px] text-emerald-600 font-bold">✓ {couponSuccessMessage}</p>
+                          <p className="text-[10px] text-emerald-600 font-bold flex items-center gap-1"><Check className="w-3.5 h-3.5 text-emerald-600" /> {couponSuccessMessage}</p>
                         )}
                         {couponErrorMessage && (
-                          <p className="text-[10px] text-red-500 font-bold">⚠️ {couponErrorMessage}</p>
+                          <p className="text-[10px] text-red-500 font-bold flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5 text-red-500" /> {couponErrorMessage}</p>
                         )}
 
                         {/* Available coupons select list */}
@@ -971,9 +1085,9 @@ export const Payment: React.FC = () => {
                             </p>
                             <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                               {availableCoupons.map((c: any) => {
-                                const discountText = c.discountType === 'PERCENTAGE' 
-                                  ? `Giảm ${c.discountValue}%` 
-                                  : `Giảm ${c.discountValue.toLocaleString('vi-VN')} đ`;
+                                const discountText = c.discountType === 'PERCENTAGE'
+                                  ? `Giảm ${c.discountValue}%`
+                                  : `Giảm ${formatPrice(c.discountValue, currency)}`;
                                 return (
                                   <div
                                     key={c.id}
@@ -1079,9 +1193,9 @@ export const Payment: React.FC = () => {
                                   )}
                                 </div>
                                 <p className="text-[10px] text-slate-400 font-medium">
-                                  * {language === 'vi' 
-                                    ? `Tối đa 30% giá phòng: -${(Number(booking.totalPrice) * 0.3).toLocaleString('vi-VN')} đ (${Math.floor((Number(booking.totalPrice) * 0.3) / 200)} điểm)`
-                                    : `Max 30% discount: -${(Number(booking.totalPrice) * 0.3).toLocaleString('vi-VN')} VND (${Math.floor((Number(booking.totalPrice) * 0.3) / 200)} pts)`}
+                                  * {language === 'vi'
+                                    ? `Tối đa 30% giá phòng: -${formatPrice(Number(booking.totalPrice) * 0.3, currency)} (${Math.floor((Number(booking.totalPrice) * 0.3) / 200)} điểm)`
+                                    : `Max 30% discount: -${formatPrice(Number(booking.totalPrice) * 0.3, currency)} (${Math.floor((Number(booking.totalPrice) * 0.3) / 200)} pts)`}
                                 </p>
                               </div>
                             )}
@@ -1103,40 +1217,46 @@ export const Payment: React.FC = () => {
                       <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wide block">{language === 'vi' ? 'Tổng tiền phải thanh toán' : 'Total Payment Amount'}</span>
                       {Number(booking.discountAmount) > 0 && (
                         <span className="text-[10px] font-extrabold text-green-600 block">
-                          {language === 'vi' 
-                            ? `Khấu trừ mã giảm giá: -${Number(booking.discountAmount).toLocaleString('vi-VN')} VND`
-                            : `Coupon discount: -${Number(booking.discountAmount).toLocaleString('vi-VN')} VND`}
+                          {language === 'vi'
+                            ? `Khấu trừ mã giảm giá: -${formatPrice(Number(booking.discountAmount), currency)}`
+                            : `Coupon discount: -${formatPrice(Number(booking.discountAmount), currency)}`}
                         </span>
                       )}
                       {Number(booking.pointsDiscount) > 0 && (
                         <span className="text-[10px] font-extrabold text-green-600 block">
-                          {language === 'vi' 
-                            ? `Khấu trừ ${booking.pointsUsed} điểm Loyalty: -${Number(booking.pointsDiscount).toLocaleString('vi-VN')} VND`
-                            : `Loyalty points discount (${booking.pointsUsed} pts): -${Number(booking.pointsDiscount).toLocaleString('vi-VN')} VND`}
+                          {language === 'vi'
+                            ? `Khấu trừ ${booking.pointsUsed} điểm Loyalty: -${formatPrice(Number(booking.pointsDiscount), currency)}`
+                            : `Loyalty points discount (${booking.pointsUsed} pts): -${formatPrice(Number(booking.pointsDiscount), currency)}`}
                         </span>
                       )}
                       <div className="text-slate-800 font-black text-xl flex items-center gap-1.5 mt-0.5">
-                        <span>{booking.finalPrice.toLocaleString('vi-VN')} VND</span>
+                        <span>{formatPrice(booking.finalPrice, currency)}</span>
                         <ChevronDown className="w-4 h-4 text-slate-400 cursor-pointer" />
                       </div>
                     </div>
 
                     <button
                       type="button"
-                      disabled={submitLoading || vnpayRedirecting}
+                      disabled={submitLoading || vnpayRedirecting || paypalRedirecting}
                       onClick={handlePaymentSubmit}
-                      className={`text-white font-extrabold text-sm px-8 py-3.5 rounded-xl shadow-lg transition-all hover:scale-[1.01] active:scale-95 flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed ${
-                        activeOption === 'hotel'
-                          ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10'
-                          : activeOption === 'wallet' && subWallet === 'vnpay'
+                      className={`text-white font-extrabold text-sm px-8 py-3.5 rounded-xl shadow-lg transition-all hover:scale-[1.01] active:scale-95 flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed ${activeOption === 'hotel'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10'
+                        : activeOption === 'wallet' && subWallet === 'vnpay'
                           ? 'bg-[#005BAA] hover:bg-[#004a8c] shadow-blue-500/10'
-                          : 'bg-[#ff5e1f] hover:bg-[#e04f16] shadow-orange-500/10'
-                      }`}
+                          : activeOption === 'wallet' && subWallet === 'paypal'
+                            ? 'bg-[#003087] hover:bg-[#002568] shadow-blue-800/10'
+                            : 'bg-[#ff5e1f] hover:bg-[#e04f16] shadow-orange-500/10'
+                        }`}
                     >
                       {vnpayRedirecting ? (
                         <>
                           <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                           <span>{language === 'vi' ? 'Đang chuyển sang VNPay...' : 'Redirecting to VNPay...'}</span>
+                        </>
+                      ) : paypalRedirecting ? (
+                        <>
+                          <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                          <span>{language === 'vi' ? 'Đang xử lý qua PayPal Sandbox...' : 'Processing PayPal Sandbox...'}</span>
                         </>
                       ) : activeOption === 'hotel' ? (
                         <>
@@ -1147,6 +1267,11 @@ export const Payment: React.FC = () => {
                         <>
                           <img src="/vnpay.jpg" alt="VNPAY" className="w-5 h-5 rounded object-contain" />
                           <span>{language === 'vi' ? 'Thanh toán qua VNPay' : 'Pay with VNPay'}</span>
+                        </>
+                      ) : activeOption === 'wallet' && subWallet === 'paypal' ? (
+                        <>
+                          <span className="font-black italic text-white text-xs px-1 bg-white/20 rounded">PayPal</span>
+                          <span>{language === 'vi' ? `Thanh toán qua PayPal Sandbox ($${(booking.finalPrice / 25000).toFixed(2)} USD)` : `Pay with PayPal Sandbox ($${(booking.finalPrice / 25000).toFixed(2)} USD)`}</span>
                         </>
                       ) : activeOption === 'card' ? (
                         <>
@@ -1257,10 +1382,10 @@ export const Payment: React.FC = () => {
                   {(firstItem?.cancellationPolicySnapshot || firstItem?.paymentPolicySnapshot) && (
                     <div className="bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl space-y-1">
                       {firstItem.cancellationPolicySnapshot && (
-                        <p className="text-[11px] font-bold text-emerald-700">🛡️ {firstItem.cancellationPolicySnapshot}</p>
+                        <p className="text-[11px] font-bold text-emerald-700 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> {firstItem.cancellationPolicySnapshot}</p>
                       )}
                       {firstItem.paymentPolicySnapshot && (
-                        <p className="text-[11px] font-bold text-blue-700">💳 {firstItem.paymentPolicySnapshot}</p>
+                        <p className="text-[11px] font-bold text-blue-700 flex items-center gap-1.5"><CreditCard className="w-3.5 h-3.5 text-blue-600 shrink-0" /> {firstItem.paymentPolicySnapshot}</p>
                       )}
                     </div>
                   )}
@@ -1273,12 +1398,12 @@ export const Payment: React.FC = () => {
                     </p>
                     <p className="flex items-center gap-2.5">
                       <Bed className="w-4.5 h-4.5 text-slate-400" />
-                      <span>{firstItem?.roomType.bedCount} {language === 'vi' ? 'giường đôi' : 'double bed'}</span>
+                      <span>{firstItem?.roomType?.bedCount} {firstItem?.roomType?.bedType || (language === 'vi' ? 'giường đôi' : 'double bed')}</span>
                     </p>
                     {firstItem?.roomType?.includeBreakfast && (
                       <p className="flex items-center gap-2.5">
                         <Utensils className="w-4.5 h-4.5 text-emerald-600" />
-                        <span className="text-emerald-600 font-bold">{language === 'vi' ? 'Bao gồm bữa sáng 🍳' : 'Breakfast included 🍳'}</span>
+                        <span className="text-emerald-600 font-bold">{language === 'vi' ? 'Bao gồm bữa sáng' : 'Breakfast included'}</span>
                       </p>
                     )}
                   </div>
@@ -1354,6 +1479,125 @@ export const Payment: React.FC = () => {
             </div>
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden relative">
               <div className="h-full bg-primary rounded-full absolute inset-y-0 left-0 animate-progress w-2/3"></div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* PAYPAL STANDARD CHECKOUT MODAL WINDOW (Official 4-Step Integration Flow) */}
+      {paypalModalOpen && paypalOrderData && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Top Bar - PayPal Branding */}
+            <div className="bg-[#003087] text-white px-6 py-4 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="font-black italic text-lg tracking-tight">PayPal</span>
+                <span className="bg-amber-400 text-slate-950 font-black text-[9px] px-2 py-0.5 rounded uppercase tracking-wider">
+                  Sandbox Checkout
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setPaypalModalOpen(false); setPaypalRedirecting(false); }}
+                className="text-white/80 hover:text-white font-bold text-lg p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Steps Flow Header */}
+            <div className="bg-slate-50 border-b border-slate-200/80 px-6 py-3 flex justify-between items-center text-[10px] font-bold text-slate-600">
+              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'CREATE' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
+                1. Create Order
+              </span>
+              <span>➔</span>
+              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'AUTHENTICATE' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
+                2. Authenticate
+              </span>
+              <span>➔</span>
+              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'CAPTURING' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
+                3. Capture
+              </span>
+              <span>➔</span>
+              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'SUCCESS' ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>
+                4. Success
+              </span>
+            </div>
+
+            {/* Modal Content Body */}
+            <div className="p-6 space-y-4 text-slate-800">
+              {/* Order Info Summary */}
+              <div className="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-100 space-y-1">
+                <div className="flex justify-between items-center text-xs font-bold">
+                  <span className="text-slate-500">Mã PayPal Order ID:</span>
+                  <span className="font-mono text-[#003087] font-extrabold">{paypalOrderData.orderId}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm font-black pt-1 border-t border-blue-200/50">
+                  <span className="text-slate-700">Tổng thanh toán USD:</span>
+                  <span className="text-[#003087] font-black text-base">${paypalOrderData.amountUsd.toFixed(2)} USD</span>
+                </div>
+              </div>
+
+              {paypalStep === 'CREATE' && (
+                <div className="py-8 text-center space-y-3">
+                  <div className="animate-spin inline-block w-8 h-8 border-3 border-[#003087] border-t-transparent rounded-full" />
+                  <p className="text-xs font-bold text-slate-600">Đang khởi tạo Order trên hệ thống PayPal REST API...</p>
+                </div>
+              )}
+
+              {paypalStep === 'AUTHENTICATE' && (
+                <div className="space-y-3 pt-1">
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-[11px] font-semibold text-amber-900">
+                    🔒 <strong>PayPal Sandbox Login:</strong> Đăng nhập tài khoản Buyer thử nghiệm bên dưới để phê duyệt giao dịch (OnApprove).
+                  </div>
+
+                  <div className="space-y-2 text-xs font-semibold">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Email người mua (Buyer Email)</label>
+                      <input
+                        type="text"
+                        value={paypalBuyerEmail}
+                        onChange={(e) => setPaypalBuyerEmail(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 outline-none font-bold text-slate-800 focus:border-[#003087]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Mật khẩu Sandbox (Password)</label>
+                      <input
+                        type="password"
+                        value={paypalBuyerPass}
+                        onChange={(e) => setPaypalBuyerPass(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 outline-none font-bold text-slate-800 focus:border-[#003087]"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePayPalOnApproveAndCapture}
+                    className="w-full bg-[#FFC439] hover:bg-[#F2B827] text-[#003087] font-black text-sm py-3.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 mt-4 active:scale-98 cursor-pointer"
+                  >
+                    <span className="italic font-black text-base">PayPal</span>
+                    <span>Phê duyệt & Capture (${paypalOrderData.amountUsd.toFixed(2)} USD)</span>
+                  </button>
+                </div>
+              )}
+
+              {paypalStep === 'CAPTURING' && (
+                <div className="py-8 text-center space-y-3">
+                  <div className="animate-spin inline-block w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full" />
+                  <p className="text-xs font-black text-emerald-700">Đang thực hiện Capture Transaction trên PayPal API Sandbox...</p>
+                </div>
+              )}
+
+              {paypalStep === 'SUCCESS' && (
+                <div className="py-6 text-center space-y-3 animate-in zoom-in-95 duration-200">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl font-black">
+                    ✓
+                  </div>
+                  <h4 className="font-extrabold text-base text-slate-900">Giao Dịch PayPal Thành Công!</h4>
+                  <p className="text-xs text-slate-500 font-semibold">Đang tạo vé điện tử & gửi mã QR Code về email khách hàng...</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

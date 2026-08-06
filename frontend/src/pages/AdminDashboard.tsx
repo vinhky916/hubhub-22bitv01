@@ -3,6 +3,8 @@ import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
+import { formatDateVN, formatDateTimeVN } from '../utils/date';
+import { useModal } from '../components/common/ModalContext';
 import { 
   Percent, Plus, Search, Bell, MessageSquare, 
   Sun, Moon, Globe, LogOut, Settings, User, Key, Menu, 
@@ -14,6 +16,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell 
 } from 'recharts';
+import { CustomSelect } from '../components/common/CustomSelect';
 
 // --- Types ---
 interface Hotel {
@@ -60,6 +63,7 @@ interface AuditLog {
 export const AdminDashboard: React.FC = () => {
   const { user } = useSelector((state: RootState) => state.auth);
   const navigate = useNavigate();
+  const { showAlert, showConfirm } = useModal();
   
   // Layout states
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -357,6 +361,20 @@ export const AdminDashboard: React.FC = () => {
     setTimeout(() => setSuccessToast(''), 3000);
   };
 
+  // Lock body scroll when any modal is open
+  const isAnyAdminModalOpen = Boolean(rejectingHotelId || showAddCoupon || deleteConfirmId);
+
+  useEffect(() => {
+    if (isAnyAdminModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isAnyAdminModalOpen]);
+
   // Status updates
   const handleApprove = async (id: string, status: 'APPROVED' | 'REJECTED') => {
     try {
@@ -367,7 +385,7 @@ export const AdminDashboard: React.FC = () => {
       fetchHotels();
     } catch (err) {
       console.error(err);
-      alert('Không thể thực hiện phê duyệt.');
+      await showAlert('Không thể thực hiện phê duyệt.', { type: 'error' });
     }
   };
 
@@ -380,12 +398,16 @@ export const AdminDashboard: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
-      alert('Không thể cập nhật phê duyệt.');
+      await showAlert('Không thể cập nhật phê duyệt.', { type: 'error' });
     }
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa người dùng này khỏi hệ thống? Tất cả khách sạn và dữ liệu liên quan sẽ bị xóa vĩnh viễn.')) return;
+    const confirmed = await showConfirm(
+      'Bạn có chắc chắn muốn xóa người dùng này khỏi hệ thống? Tất cả khách sạn và dữ liệu liên quan sẽ bị xóa vĩnh viễn.',
+      { title: 'Xác nhận xóa người dùng', type: 'danger', confirmText: 'Xóa vĩnh viễn' }
+    );
+    if (!confirmed) return;
     try {
       const res = await apiClient.delete(`/auth/admin/users/${userId}`);
       if (res.data.success) {
@@ -394,7 +416,7 @@ export const AdminDashboard: React.FC = () => {
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.response?.data?.message || 'Không thể xóa người dùng.');
+      await showAlert(err.response?.data?.message || 'Không thể xóa người dùng.', { type: 'error' });
     }
   };
 
@@ -431,7 +453,7 @@ export const AdminDashboard: React.FC = () => {
       fetchCoupons();
     } catch (err: any) {
       console.error(err);
-      alert(err.response?.data?.message || 'Không thể tạo coupon.');
+      await showAlert(err.response?.data?.message || 'Không thể tạo coupon.', { type: 'error' });
     }
   };
 
@@ -441,9 +463,22 @@ export const AdminDashboard: React.FC = () => {
       setDeleteConfirmId(null);
       triggerToast('Xóa mã giảm giá thành công!');
       fetchCoupons();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Không thể xóa coupon.');
+      await showAlert(err.response?.data?.message || 'Không thể xóa coupon này (có thể đã phát sinh lịch sử sử dụng).', { type: 'error' });
+    }
+  };
+
+  const handleToggleCouponStatus = async (id: string) => {
+    try {
+      const res = await apiClient.patch(`/coupons/${id}/toggle`);
+      if (res.data.success) {
+        triggerToast(res.data.message || 'Cập nhật trạng thái mã thành công!');
+        fetchCoupons();
+      }
+    } catch (err: any) {
+      console.error(err);
+      await showAlert(err.response?.data?.message || 'Không thể thay đổi trạng thái coupon.', { type: 'error' });
     }
   };
 
@@ -1098,16 +1133,18 @@ export const AdminDashboard: React.FC = () => {
                   className="bg-white border border-[#CBD5E1] text-[#1E293B] rounded-xl px-4 py-2 text-xs font-semibold outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
                 />
                 
-                <select 
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="bg-white border border-[#CBD5E1] text-[#1E293B] rounded-xl px-4 py-2 text-xs font-semibold outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all"
-                >
-                  <option value="ALL">Tất cả trạng thái</option>
-                  <option value="PENDING">PENDING (Chờ duyệt)</option>
-                  <option value="APPROVED">APPROVED (Đã duyệt)</option>
-                  <option value="REJECTED">REJECTED (Từ chối)</option>
-                </select>
+                <div>
+                  <CustomSelect
+                    value={statusFilter}
+                    onChange={(val) => setStatusFilter(val)}
+                    options={[
+                      { value: 'ALL', label: 'Tất cả trạng thái' },
+                      { value: 'PENDING', label: 'PENDING (Chờ duyệt)', icon: '⏳' },
+                      { value: 'APPROVED', label: 'APPROVED (Đã duyệt)', icon: '✅' },
+                      { value: 'REJECTED', label: 'REJECTED (Từ chối)', icon: '❌' },
+                    ]}
+                  />
+                </div>
               </div>
 
               {/* Hotel list table */}
@@ -1211,6 +1248,7 @@ export const AdminDashboard: React.FC = () => {
                         <th className="px-4 py-3">Giá trị</th>
                         <th className="px-4 py-3">Lượt dùng</th>
                         <th className="px-4 py-3">Hạn dùng</th>
+                        <th className="px-4 py-3">Trạng thái</th>
                         <th className="px-4 py-3">Hành động</th>
                       </tr>
                     </thead>
@@ -1222,8 +1260,26 @@ export const AdminDashboard: React.FC = () => {
                           <td className="px-4 py-4">{coupon.discountType === 'PERCENTAGE' ? 'Phần trăm (%)' : 'Giá trị cố định (đ)'}</td>
                           <td className="px-4 py-4 font-extrabold text-[#0F172A]">{coupon.discountValue.toLocaleString()}</td>
                           <td className="px-4 py-4 text-[#64748B]">{coupon.usedCount} / {coupon.usageLimit}</td>
-                          <td className="px-4 py-4 text-[#64748B]">{new Date(coupon.endDate).toLocaleDateString('vi-VN')}</td>
+                          <td className="px-4 py-4 text-[#64748B]">{formatDateVN(coupon.endDate)}</td>
                           <td className="px-4 py-4">
+                            <span className={`px-2 py-0.5 rounded font-black text-[9px] uppercase ${
+                              coupon.isActive ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {coupon.isActive ? 'Hoạt động' : 'Tạm khóa'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleCouponStatus(coupon.id)}
+                              className={`text-[9px] font-extrabold px-2.5 py-1.5 rounded-xl transition-all shadow-sm ${
+                                coupon.isActive
+                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                              }`}
+                            >
+                              {coupon.isActive ? 'Khóa mã' : 'Mở khóa'}
+                            </button>
                             <button onClick={() => setDeleteConfirmId(coupon.id)} className="text-[#DC2626] bg-[#FEE2E2] hover:bg-[#FECACA] p-2 rounded-xl transition-all shadow-sm"><Trash2 className="w-4 h-4" /></button>
                           </td>
                         </tr>
@@ -1298,7 +1354,7 @@ export const AdminDashboard: React.FC = () => {
                               <span className="bg-[#DBEAFE] text-[#1D4ED8] px-2 py-0.5 rounded font-black text-[8px] uppercase">{log.action}</span>
                             </td>
                             <td className="px-4 py-4 text-[#64748B]">{log.entityName}</td>
-                            <td className="px-4 py-4 text-[#64748B]">{new Date(log.createdAt).toLocaleString('vi-VN')}</td>
+                            <td className="px-4 py-4 text-[#64748B]">{formatDateTimeVN(log.createdAt)}</td>
                             <td className="px-4 py-4">
                               <p className="font-bold text-[#1E293B]">{log.user?.fullName}</p>
                               <p className="text-[9px] text-[#64748B]">{log.user?.email}</p>
@@ -1321,17 +1377,17 @@ export const AdminDashboard: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-sm text-[#1E293B] uppercase">Quản lý người dùng ({users.length})</h3>
                   </div>
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <select
+                  <div className="flex items-center gap-3 w-full sm:w-auto min-w-[200px]">
+                    <CustomSelect
                       value={usersFilterRole}
-                      onChange={(e) => setUsersFilterRole(e.target.value)}
-                      className="bg-white border border-[#CBD5E1] text-[#1E293B] rounded-xl px-4 py-2 text-xs outline-none font-semibold focus:border-[#2563EB] transition-all"
-                    >
-                      <option value="ALL">Tất cả vai trò</option>
-                      <option value="CUSTOMER">Khách hàng</option>
-                      <option value="HOTEL_OWNER">Chủ khách sạn</option>
-                      <option value="ADMIN">Quản trị viên</option>
-                    </select>
+                      onChange={(val) => setUsersFilterRole(val)}
+                      options={[
+                        { value: 'ALL', label: 'Tất cả vai trò' },
+                        { value: 'CUSTOMER', label: 'Khách hàng', icon: '👤' },
+                        { value: 'HOTEL_OWNER', label: 'Chủ khách sạn', icon: '🏨' },
+                        { value: 'ADMIN', label: 'Quản trị viên', icon: '🛡️' },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -1409,7 +1465,7 @@ export const AdminDashboard: React.FC = () => {
                               )}
                             </td>
                             <td className="px-4 py-4 text-[#64748B]">
-                              {new Date(item.createdAt).toLocaleDateString('vi-VN')}
+                              {formatDateVN(item.createdAt)}
                             </td>
                             <td className="px-4 py-4 text-center">
                               {item.role !== 'ADMIN' ? (
@@ -1589,7 +1645,7 @@ export const AdminDashboard: React.FC = () => {
                               </span>
                             </td>
                             <td className="px-4 py-4 text-[#64748B]">
-                              {new Date(p.createdAt).toLocaleString('vi-VN')}
+                              {formatDateTimeVN(p.createdAt)}
                             </td>
                           </tr>
                         ))}
@@ -1629,7 +1685,7 @@ export const AdminDashboard: React.FC = () => {
                           </div>
                           <div className="flex items-center gap-1 bg-amber-50 text-amber-600 px-2 py-0.5 rounded-lg border border-amber-200 text-xs font-black">
                             <Star className="w-3.5 h-3.5 fill-amber-500 stroke-amber-500" />
-                            <span>{r.ratingOverall} / 5</span>
+                            <span>{(r.ratingOverall <= 5 ? r.ratingOverall * 2 : r.ratingOverall).toFixed(1)} / 10</span>
                           </div>
                         </div>
 
@@ -1638,7 +1694,7 @@ export const AdminDashboard: React.FC = () => {
                           <p className="text-xs text-[#475569] font-medium leading-relaxed mt-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
                             "{r.comment}"
                           </p>
-                          <p className="text-[8px] text-[#94A3B8] font-bold mt-2">Gửi ngày: {new Date(r.createdAt).toLocaleString('vi-VN')}</p>
+                          <p className="text-[8px] text-[#94A3B8] font-bold mt-2">Gửi ngày: {formatDateTimeVN(r.createdAt)}</p>
                         </div>
                       </div>
                     ))}
@@ -1675,7 +1731,7 @@ export const AdminDashboard: React.FC = () => {
 
       {/* REJECT MODAL */}
       {rejectingHotelId && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-55 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-sm space-y-4 text-[#1E293B]">
             <h3 className="font-bold text-[#0F172A] text-sm">Lý do từ chối khách sạn</h3>
             <textarea
@@ -1707,11 +1763,10 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ADD COUPON MODAL */}
       {showAddCoupon && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-55 flex items-center justify-center p-4">
-          <form onSubmit={handleCreateCoupon} className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-md space-y-4 text-[#1E293B] animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center border-b border-[#E2E8F0] pb-3">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <form onSubmit={handleCreateCoupon} className="bg-white border border-[#E2E8F0] p-6 rounded-3xl shadow-2xl w-full max-w-2xl lg:max-w-3xl space-y-4 text-[#1E293B] animate-in fade-in zoom-in-95 duration-150 max-h-[88vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-[#E2E8F0] pb-3 shrink-0">
               <div>
                 <h3 className="font-extrabold text-[#0F172A] text-base">Tạo Mã Giảm Giá Toàn Sàn</h3>
                 <p className="text-[10px] text-[#64748B] font-semibold mt-0.5">Điền đầy đủ thông tin để phát hành Voucher trên hệ thống</p>
@@ -1719,7 +1774,7 @@ export const AdminDashboard: React.FC = () => {
               <span className="text-xl">🏷️</span>
             </div>
             
-            <div className="space-y-3.5 text-xs font-semibold max-h-[75vh] overflow-y-auto pr-1">
+            <div className="space-y-4 text-xs font-semibold overflow-y-auto pr-1 flex-1">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Mã giảm giá (In hoa) *</label>
@@ -1893,7 +1948,7 @@ export const AdminDashboard: React.FC = () => {
 
       {/* DELETE CONFIRM MODAL */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-55 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-sm space-y-4 text-[#1E293B] text-center">
             <ShieldAlert className="w-12 h-12 text-[#DC2626] mx-auto animate-bounce" />
             <h3 className="font-bold text-sm text-[#0F172A]">Xác nhận xóa bản ghi?</h3>

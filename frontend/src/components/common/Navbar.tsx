@@ -311,6 +311,17 @@ export const Navbar: React.FC = () => {
                         </Link>
                       )}
 
+                      {(user?.role === 'STAFF' || user?.role === 'HOTEL_OWNER' || user?.role === 'ADMIN') && (
+                        <Link
+                          to="/staff-dashboard"
+                          onClick={() => setDropdownOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                        >
+                          <Sparkles className="w-4 h-4 text-purple-500" />
+                          Bàn Làm Việc Staff
+                        </Link>
+                      )}
+
                       {user?.role === 'ADMIN' && (
                         <Link
                           to="/admin-dashboard"

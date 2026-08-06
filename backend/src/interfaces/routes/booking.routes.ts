@@ -8,8 +8,8 @@ import { createBookingSchema } from '../dtos/booking.dto';
 
 const router = Router();
 
-// Route tạo đặt phòng cho phép cả khách vãng lai và thành viên đăng nhập
-router.post('/', validateRequest(createBookingSchema), bookingController.create);
+// Route tạo đặt phòng yêu cầu người dùng phải đăng nhập trước
+router.post('/', requireAuth, validateRequest(createBookingSchema), bookingController.create);
 
 // Route thống kê cho quản trị viên và đối tác chủ phòng
 router.get('/admin-stats', requireAuth, requireRole([Role.ADMIN]), statsController.getAdminStats);

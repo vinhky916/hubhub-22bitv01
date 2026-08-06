@@ -16,10 +16,13 @@ export interface SearchState {
   amenityIds: string[];
 }
 
-const getDateString = (offset = 0): string => {
-  const d = new Date();
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().split('T')[0];
+export const getLocalDateString = (d: Date = new Date(), offsetDays = 0): string => {
+  const date = new Date(d);
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const defaultState: SearchState = {
@@ -28,8 +31,8 @@ const defaultState: SearchState = {
   districtId: '',
   wardId: '',
   categoryId: '',
-  checkInDate: getDateString(0), // Ngày hiện tại
-  checkOutDate: getDateString(1), // Ngày mai
+  checkInDate: getLocalDateString(new Date(), 0), // Ngày hiện tại local
+  checkOutDate: getLocalDateString(new Date(), 1), // Ngày mai local
   guests: 2,
   priceMin: null,
   priceMax: null,
@@ -42,7 +45,7 @@ const loadSearchState = (): SearchState => {
     const saved = localStorage.getItem('search_criteria');
     if (saved) {
       const parsed = JSON.parse(saved);
-      const todayStr = getDateString(0);
+      const todayStr = getLocalDateString(new Date(), 0);
       
       let checkIn = parsed.checkInDate;
       let checkOut = parsed.checkOutDate;

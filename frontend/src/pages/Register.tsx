@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import apiClient from '../core/api/client';
 import { Sparkles, Mail, Lock, User, Phone, CheckCircle, Home } from 'lucide-react';
+import { useModal } from '../components/common/ModalContext';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
+  const { showAlert } = useModal();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,7 +35,7 @@ export const Register: React.FC = () => {
       });
 
       if (res.data.success) {
-        alert('Đăng ký tài khoản thành công! Bạn có thể tiến hành đăng nhập.');
+        await showAlert('Đăng ký tài khoản thành công! Bạn có thể tiến hành đăng nhập.', { type: 'success', title: 'Đăng ký thành công' });
         navigate('/login');
       } else {
         setError(res.data.message || 'Đăng ký thất bại');
@@ -58,7 +60,7 @@ export const Register: React.FC = () => {
       });
 
       if (res.data.success) {
-        alert('Xác thực email thành công! Bạn có thể tiến hành đăng nhập.');
+        await showAlert('Xác thực email thành công! Bạn có thể tiến hành đăng nhập.', { type: 'success', title: 'Xác thực thành công' });
         setShowOtpModal(false);
         navigate('/login');
       } else {

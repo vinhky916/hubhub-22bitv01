@@ -5,6 +5,8 @@ import type { RootState } from '../store';
 import { updateUserProfile } from '../store/slices/authSlice';
 import apiClient from '../core/api/client';
 import { formatPrice } from '../utils/price';
+import { formatDateVN } from '../utils/date';
+import { useModal } from '../components/common/ModalContext';
 import {
   User,
   Mail,
@@ -23,7 +25,10 @@ import {
   EyeOff,
   MapPin,
   Bell,
-  Info
+  Info,
+  Upload,
+  Hotel,
+  RotateCcw
 } from 'lucide-react';
 
 interface BookingItem {
@@ -71,6 +76,7 @@ interface PaymentCard {
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { showAlert, showConfirm } = useModal();
   const [searchParams] = useSearchParams();
 
   const { user } = useSelector((state: RootState) => state.auth);
@@ -249,6 +255,35 @@ export const Profile: React.FC = () => {
   const nextTierName = loyaltySummary?.nextTierName ?? 'Silver';
   const expiringSoon = loyaltySummary?.expiringSoon ?? 0;
 
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+      });
+
+      const res = await apiClient.post('/hotels/upload-image', { image: base64 });
+      if (res.data.success) {
+        setAvatarUrl(res.data.data.url);
+        triggerToast(language === 'vi' ? 'Đã tải ảnh đại diện lên thành công!' : 'Avatar uploaded successfully!');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast(language === 'vi' ? 'Lỗi tải ảnh đại diện lên.' : 'Failed to upload avatar image.', 'error');
+    } finally {
+      setUploadingAvatar(false);
+      e.target.value = '';
+    }
+  };
+
   // Update Profile Request
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -354,8 +389,8 @@ export const Profile: React.FC = () => {
                 {language === 'vi' ? 'Đã TT Online' : 'Paid Online'}
               </span>
             ) : isPayAtHotel ? (
-              <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[9px] px-2 py-0.5 rounded-full font-bold">
-                🏨 {language === 'vi' ? 'Thanh toán tại khách sạn' : 'Pay at Hotel'}
+              <span className="bg-amber-100 text-amber-800 border border-amber-200 text-[9px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                <Hotel className="w-3 h-3 text-amber-800 shrink-0" /> {language === 'vi' ? 'Thanh toán tại khách sạn' : 'Pay at Hotel'}
               </span>
             ) : (
               <span className="bg-slate-100 text-slate-600 text-[9px] px-2 py-0.5 rounded-full font-bold">
@@ -378,8 +413,8 @@ export const Profile: React.FC = () => {
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {language === 'vi' ? 'Đã hủy' : 'Cancelled'}
             </span>
             {isRefunded && (
-              <span className="bg-amber-100 text-amber-800 border border-amber-300 text-[9px] px-2 py-0.5 rounded-full font-bold">
-                💸 {language === 'vi' ? 'Đã hoàn tiền (VNPay)' : 'Refunded (VNPay)'}
+              <span className="bg-amber-100 text-amber-800 border border-amber-300 text-[9px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                <RotateCcw className="w-3 h-3 text-amber-800 shrink-0" /> {language === 'vi' ? 'Đã hoàn tiền (VNPay)' : 'Refunded (VNPay)'}
               </span>
             )}
           </div>
@@ -404,7 +439,7 @@ export const Profile: React.FC = () => {
 
     const hotelId = (item.roomType as any).hotelId || (item.roomType.hotel as any).id;
     if (!hotelId) {
-      alert("Không tìm thấy thông tin khách sạn để gửi đánh giá.");
+      await showAlert("Không tìm thấy thông tin khách sạn để gửi đánh giá.", { type: 'error' });
       return;
     }
 
@@ -619,23 +654,47 @@ export const Profile: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Avatar URL Field */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">{language === 'vi' ? 'Đường dẫn ảnh đại diện (Avatar URL)' : 'Avatar Image URL'}</label>
-                  <div className="relative">
-                    <Compass className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                    <input
-                      type="url"
-                      value={avatarUrl}
-                      onChange={(e) => setAvatarUrl(e.target.value)}
-                      placeholder="https://example.com/avatar.jpg"
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 hover:border-slate-350 focus:border-blue-600 focus:outline-none rounded-xl text-slate-800 transition-all font-semibold"
-                    />
+                {/* Avatar Field (File Upload from Computer + URL) */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">
+                    {language === 'vi' ? 'Ảnh đại diện (Avatar)' : 'Avatar Image'}
+                  </label>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    {/* Nút chọn ảnh từ máy tính */}
+                    <label className="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold px-4 py-3 rounded-xl border border-blue-200 flex items-center justify-center gap-2 text-xs transition-all active:scale-95 shrink-0 shadow-sm">
+                      <Upload className="w-4 h-4 text-blue-600" />
+                      <span>
+                        {uploadingAvatar
+                          ? (language === 'vi' ? 'Đang tải ảnh...' : 'Uploading...')
+                          : (language === 'vi' ? 'Chọn ảnh từ máy tính' : 'Upload from PC')}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarFileChange}
+                        disabled={uploadingAvatar}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {/* Hoặc nhập đường dẫn URL */}
+                    <div className="relative flex-1">
+                      <Compass className="absolute left-3.5 top-1/2 transform -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={avatarUrl}
+                        onChange={(e) => setAvatarUrl(e.target.value)}
+                        placeholder={language === 'vi' ? 'Hoặc dán URL ảnh tại đây...' : 'Or paste image URL here...'}
+                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 hover:border-slate-350 focus:border-blue-600 focus:outline-none rounded-xl text-slate-800 transition-all font-semibold text-xs sm:text-sm"
+                      />
+                    </div>
                   </div>
+
                   {avatarUrl && (
-                    <div className="flex items-center gap-3 pt-2">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">{language === 'vi' ? 'Xem trước:' : 'Live Preview:'}</span>
-                      <img src={avatarUrl} alt="Preview" className="w-10 h-10 rounded-full object-cover border border-slate-200" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                    <div className="flex items-center gap-3 pt-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">{language === 'vi' ? 'Xem trước ảnh:' : 'Live Preview:'}</span>
+                      <img src={avatarUrl} alt="Preview" className="w-12 h-12 rounded-full object-cover border-2 border-blue-500 shadow-sm" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                     </div>
                   )}
                 </div>
@@ -725,11 +784,11 @@ export const Profile: React.FC = () => {
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-semibold text-slate-655">
                           <div>
                             <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{language === 'vi' ? 'NHẬN PHÒNG' : 'CHECK-IN'}</span>
-                            <span className="text-slate-800 font-bold">{new Date(booking.checkInDate).toLocaleDateString('vi-VN')}</span>
+                            <span className="text-slate-800 font-bold">{formatDateVN(booking.checkInDate)}</span>
                           </div>
                           <div>
                             <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{language === 'vi' ? 'TRẢ PHÒNG' : 'CHECK-OUT'}</span>
-                            <span className="text-slate-800 font-bold">{new Date(booking.checkOutDate).toLocaleDateString('vi-VN')}</span>
+                            <span className="text-slate-800 font-bold">{formatDateVN(booking.checkOutDate)}</span>
                           </div>
                           <div>
                             <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{language === 'vi' ? 'HỌ TÊN KHÁCH' : 'GUEST NAME'}</span>
@@ -778,7 +837,13 @@ export const Profile: React.FC = () => {
                             {(booking.status === 'PENDING' || booking.status === 'PAYMENT_PROCESSING' || booking.status === 'CONFIRMED') && (
                               <button
                                 onClick={async () => {
-                                  if (window.confirm(language === 'vi' ? 'Bạn có chắc chắn muốn hủy đơn đặt phòng này? Đặt phòng của bạn sẽ bị hủy và phòng sẽ được giải phóng.' : 'Are you sure you want to cancel this booking?')) {
+                                  const confirmed = await showConfirm(
+                                    language === 'vi'
+                                      ? 'Bạn có chắc chắn muốn hủy đơn đặt phòng này? Đặt phòng của bạn sẽ bị hủy và phòng sẽ được giải phóng.'
+                                      : 'Are you sure you want to cancel this booking?',
+                                    { title: language === 'vi' ? 'Xác nhận hủy đặt phòng' : 'Confirm Cancellation', type: 'danger', confirmText: language === 'vi' ? 'Hủy phòng' : 'Cancel Booking' }
+                                  );
+                                  if (confirmed) {
                                     try {
                                       const res = await apiClient.put(`/bookings/${booking.id}/status`, { status: 'CANCELLED' });
                                       if (res.data.success || res.status === 200) {
@@ -1093,7 +1158,7 @@ export const Profile: React.FC = () => {
                             <p className="text-slate-500 font-medium text-[11px]">{n.content}</p>
                           </div>
                           <span className="text-[10px] text-slate-400 whitespace-nowrap ml-2">
-                            {new Date(n.createdAt).toLocaleDateString('vi-VN')}
+                            {formatDateVN(n.createdAt)}
                           </span>
                         </div>
                       ))}
@@ -1125,7 +1190,7 @@ export const Profile: React.FC = () => {
                         {loyaltyHistory.map((h: any) => (
                           <div key={h.id} className="grid grid-cols-4 items-center text-center py-3 font-semibold text-slate-600 hover:bg-slate-50/50 transition-colors">
                             <div className="text-[11px] font-medium text-slate-500">
-                              {new Date(h.createdAt).toLocaleDateString('vi-VN')}
+                              {formatDateVN(h.createdAt)}
                             </div>
                             <div>
                               <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -1161,7 +1226,7 @@ export const Profile: React.FC = () => {
 
       {/* --- MODAL 1: QR Ticket Modal --- */}
       {selectedQrBooking && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <div className="bg-white border border-slate-100 p-6 rounded-3xl shadow-2xl w-full max-w-sm text-center space-y-5 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-extrabold text-slate-800 text-sm">{language === 'vi' ? 'Vé check-in QR Code' : 'Check-in QR Ticket'}</h3>
@@ -1209,9 +1274,9 @@ export const Profile: React.FC = () => {
         </div>
       )}
 
-      {/* --- MODAL 2: Review Submission Modal --- */}
+      {/* --- MODAL 2: Rating & Review Modal --- */}
       {selectedReviewBooking && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
           <form onSubmit={handleSubmitReview} className="bg-white border border-slate-100 p-6 rounded-3xl shadow-2xl w-full max-w-md space-y-4 text-slate-800 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-extrabold text-slate-955 text-sm">{language === 'vi' ? 'Viết nhận xét đánh giá' : 'Submit Stay Review'}</h3>

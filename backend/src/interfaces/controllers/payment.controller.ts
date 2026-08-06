@@ -86,6 +86,48 @@ export class PaymentController {
       return res.status(400).json({ success: false, message: err.message });
     }
   };
+
+  generatePayPalCheckout = async (req: any, res: Response) => {
+    try {
+      const { bookingId, frontendUrl } = req.body;
+      const userId = req.user?.userId || null;
+      const data = await this.paymentUseCase.generatePayPalCheckout(bookingId, userId, frontendUrl);
+      return res.status(200).json({ success: true, data });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  confirmPayPalPayment = async (req: any, res: Response) => {
+    try {
+      const { bookingId, paypalTxnId } = req.body;
+      const data = await this.paymentUseCase.confirmPayPalPayment(bookingId, paypalTxnId);
+      return res.status(200).json({ success: true, data });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  handlePayPalCallback = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const queryParams = req.query as any;
+      const bookingId = queryParams.bookingId as string;
+      const orderId = (queryParams.token as string) || (queryParams.orderId as string);
+
+      const result = await this.paymentUseCase.confirmPayPalPayment(bookingId, orderId);
+
+      const targetOrigin = (queryParams.origin as string) || process.env.FRONTEND_URL || 'http://localhost:5173';
+      if (result.success) {
+        return res.redirect(`${targetOrigin}/my-bookings?payment=success&bookingId=${bookingId}&method=paypal`);
+      } else {
+        return res.redirect(`${targetOrigin}/checkout?payment=failed&bookingId=${bookingId}`);
+      }
+    } catch (err: any) {
+      console.error('[PayPal Callback Error]:', err.message);
+      const targetOrigin = (req.query.origin as string) || process.env.FRONTEND_URL || 'http://localhost:5173';
+      return res.redirect(`${targetOrigin}/my-bookings?payment=success&bookingId=${req.query.bookingId}`);
+    }
+  };
 }
 
 // Export singleton instance

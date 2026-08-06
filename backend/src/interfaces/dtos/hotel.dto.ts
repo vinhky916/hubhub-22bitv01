@@ -6,6 +6,7 @@ export const createHotelSchema = z.object({
     description: z.string().min(10, 'Mô tả phải từ 10 ký tự trở lên'),
     address: z.string().min(2, 'Địa chỉ chi tiết không được để trống'),
     categoryId: z.string().uuid('Danh mục không hợp lệ'),
+    propertyType: z.enum(['HOTEL', 'APARTMENT', 'VILLA', 'RESORT', 'HOMESTAY', 'GUESTHOUSE']).default('HOTEL'),
     provinceId: z.string().min(1, 'Tỉnh/Thành phố không được để trống'),
     districtId: z.string().min(1, 'Quận/Huyện không được để trống'),
     wardId: z.string().min(1, 'Phường/Xã không được để trống'),
@@ -28,6 +29,7 @@ export const updateHotelSchema = z.object({
     description: z.string().min(10).optional(),
     address: z.string().min(2).optional(),
     categoryId: z.string().uuid().optional(),
+    propertyType: z.enum(['HOTEL', 'APARTMENT', 'VILLA', 'RESORT', 'HOMESTAY', 'GUESTHOUSE']).optional(),
     provinceId: z.string().optional(),
     districtId: z.string().optional(),
     wardId: z.string().optional(),
@@ -51,6 +53,7 @@ export const createRoomTypeSchema = z.object({
     basePrice: z.number().positive('Giá gốc phải lớn hơn 0'),
     capacity: z.number().int().positive('Sức chứa tối đa phải lớn hơn 0'),
     bedCount: z.number().int().positive('Số giường phải lớn hơn 0').default(1),
+    bedType: z.string().optional().default("Giường Đôi"),
     size: z.number().positive('Diện tích phòng phải lớn hơn 0').optional(),
     amenities: z.array(z.string()).default([]),
     images: z.array(z.object({
@@ -72,6 +75,7 @@ export const updateRoomTypeSchema = z.object({
     basePrice: z.number().positive().optional(),
     capacity: z.number().int().positive().optional(),
     bedCount: z.number().int().positive().optional(),
+    bedType: z.string().optional(),
     size: z.number().positive().optional(),
     amenities: z.array(z.string()).optional(),
     images: z.array(z.object({

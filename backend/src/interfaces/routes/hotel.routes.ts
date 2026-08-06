@@ -38,6 +38,13 @@ router.post(
   hotelController.createAmenity
 );
 
+router.post(
+  '/reviews/:id/reply',
+  requireAuth,
+  requireRole([Role.HOTEL_OWNER, Role.ADMIN, Role.STAFF]),
+  hotelController.replyReview
+);
+router.post('/reviews/:id/like', hotelController.toggleLikeReview);
 router.post('/:id/favorite', requireAuth, hotelController.toggleFavorite);
 router.post('/:id/reviews', requireAuth, hotelController.createReview);
 router.post(
@@ -94,6 +101,13 @@ router.delete(
   requireAuth,
   requireRole([Role.HOTEL_OWNER]),
   hotelController.deleteRoom
+);
+
+router.put(
+  '/room-types/:id/rooms',
+  requireAuth,
+  requireRole([Role.HOTEL_OWNER]),
+  hotelController.updateRoomNumbersBulk
 );
 
 // Quản lý lịch giá phòng động

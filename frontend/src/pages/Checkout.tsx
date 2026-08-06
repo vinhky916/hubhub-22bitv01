@@ -3,11 +3,27 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
+import { formatFullDateVN } from '../utils/date';
+import { formatPrice } from '../utils/price';
 import { 
   CreditCard, 
   ChevronDown,
   ChevronUp,
-  ShieldCheck
+  ShieldCheck,
+  Users,
+  Bed,
+  Wifi,
+  Utensils,
+  ThumbsUp,
+  Gift,
+  AlertCircle,
+  Mail,
+  User,
+  Check,
+  FileText,
+  Clock,
+  AlertTriangle,
+  X
 } from 'lucide-react';
 
 const StarIcon = ({ size = 16 }: { size?: number }) => (
@@ -75,7 +91,7 @@ export const Checkout: React.FC = () => {
   const [touchedEmail, setTouchedEmail] = useState(false);
   const [touchedPassenger, setTouchedPassenger] = useState(false);
 
-  const { language } = useSelector((state: RootState) => state.settings);
+  const { language, currency } = useSelector((state: RootState) => state.settings);
 
   useEffect(() => {
     setFinalPrice(basePrice - discount + (insuranceSelected ? 43500 : 0));
@@ -93,6 +109,10 @@ export const Checkout: React.FC = () => {
   }, [policyModalOpen]);
 
   useEffect(() => {
+    if (!user) {
+      navigate('/login', { state: { from: '/checkout' } });
+      return;
+    }
     if (!preview) {
       navigate('/');
       return;
@@ -186,17 +206,11 @@ export const Checkout: React.FC = () => {
   };
 
   const formatVietnameseDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const daysOfWeek = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
-    return `${daysOfWeek[date.getDay()]}, ${date.getDate()} tháng ${date.getMonth() + 1} ${date.getFullYear()}`;
+    return formatFullDateVN(dateStr);
   };
 
   const formatEnglishDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return `${daysOfWeek[date.getDay()]}, ${date.toLocaleString('en-US', { month: 'long' })} ${date.getDate()} ${date.getFullYear()}`;
+    return formatFullDateVN(dateStr);
   };
 
   const getNightsCount = () => {
@@ -298,7 +312,7 @@ export const Checkout: React.FC = () => {
             {!user && (
               <div className="bg-[#ebf3ff] border border-[#c2dcfc] p-4 rounded-xl flex justify-between items-center gap-4 text-xs font-extrabold text-slate-700">
                 <div className="flex items-center gap-2">
-                  <span className="text-base">🎁</span>
+                  <Gift className="w-5 h-5 text-pink-500 shrink-0" />
                   <span>
                     {language === 'vi' 
                       ? 'Đăng nhập hoặc đăng ký để có giá rẻ hơn và nhiều ưu đãi hơn!' 
@@ -317,8 +331,9 @@ export const Checkout: React.FC = () => {
 
             {/* Error notifications */}
             {checkoutError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-xs font-bold shadow-sm">
-                ⚠️ {checkoutError}
+              <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <span>{checkoutError}</span>
               </div>
             )}
 
@@ -328,7 +343,7 @@ export const Checkout: React.FC = () => {
               {/* 1. Contact Details Section */}
               <div className="space-y-4">
                 <div className="flex items-start gap-2 border-b border-slate-50 pb-3">
-                  <span className="text-[#0194f3] text-xl">✉</span>
+                  <Mail className="w-5 h-5 text-[#0194f3] shrink-0 mt-0.5" />
                   <div>
                     <h3 className="font-extrabold text-slate-800 text-base">{language === 'vi' ? 'Liên hệ đặt chỗ' : 'Contact details'}</h3>
                     <p className="text-xs text-slate-400 font-medium">{language === 'vi' ? 'Thêm liên hệ để nhận xác nhận đặt chỗ.' : 'Add contacts to receive confirmation vouchers.'}</p>
@@ -422,7 +437,7 @@ export const Checkout: React.FC = () => {
               {!bookForSelf && (
                 <div className="pt-6 border-t border-slate-100 space-y-4 animate-in slide-in-from-top-4 duration-200">
                   <div className="flex items-start gap-2 border-b border-slate-50 pb-3">
-                    <span className="text-[#0194f3] text-xl">👤</span>
+                    <User className="w-5 h-5 text-[#0194f3] shrink-0 mt-0.5" />
                     <div>
                       <h3 className="font-extrabold text-slate-800 text-base">{language === 'vi' ? 'Thông tin Khách hàng' : 'Passenger Details'}</h3>
                       <p className="text-xs text-slate-400 font-medium">{language === 'vi' ? 'Vui lòng điền đầy đủ các thông tin để nhận xác nhận đơn hàng' : 'Please fill in all guest details for confirmation.'}</p>
@@ -452,7 +467,7 @@ export const Checkout: React.FC = () => {
               {/* 3. Special Requests Section */}
               <div className="pt-6 border-t border-slate-100 space-y-4">
                 <div className="flex items-start gap-2 border-b border-slate-50 pb-3">
-                  <span className="text-[#0194f3] text-xl">☑</span>
+                  <Check className="w-5 h-5 text-[#0194f3] shrink-0 mt-0.5" />
                   <div>
                     <h3 className="font-extrabold text-slate-800 text-base">{language === 'vi' ? 'Yêu cầu đặc biệt' : 'Special requests'}</h3>
                     <p className="text-xs text-slate-400 font-medium leading-relaxed">
@@ -481,7 +496,7 @@ export const Checkout: React.FC = () => {
                         <span className={`w-4.5 h-4.5 rounded flex items-center justify-center text-[10px] border transition-all ${
                           isChecked ? 'bg-[#0194f3] border-[#0194f3] text-white' : 'border-slate-300 bg-white'
                         }`}>
-                          {isChecked && '✓'}
+                          {isChecked && <Check className="w-3.5 h-3.5 text-white" />}
                         </span>
                         <span>{label}</span>
                       </button>
@@ -508,7 +523,7 @@ export const Checkout: React.FC = () => {
               <div className="bg-white border border-slate-150 p-6 rounded-2xl shadow-sm space-y-4">
                 <div className="flex justify-between items-center border-b border-slate-50 pb-3">
                   <h3 className="font-extrabold text-slate-800 text-base flex items-center gap-1.5">
-                    <span>📋</span> {language === 'vi' ? 'Chính sách Chỗ ở' : 'Accommodation Policies'}
+                    <FileText className="w-5 h-5 text-blue-600 shrink-0" /> {language === 'vi' ? 'Chính sách Chỗ ở' : 'Accommodation Policies'}
                   </h3>
                   <button 
                     type="button" 
@@ -521,7 +536,7 @@ export const Checkout: React.FC = () => {
                 
                 <div className="space-y-3">
                   <div className="flex gap-2.5 items-start">
-                    <span className="text-red-500 text-base shrink-0">🕒</span>
+                    <Clock className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
                     <div>
                       <h4 className="font-extrabold text-xs text-slate-800">{language === 'vi' ? 'Nhận phòng & Trả phòng' : 'Check-in & Check-out'}</h4>
                       <p className="text-xs text-slate-500 font-semibold mt-0.5">
@@ -555,22 +570,22 @@ export const Checkout: React.FC = () => {
                 <p className="text-xs text-slate-500 font-semibold leading-relaxed">
                   {language === 'vi' 
                     ? 'Bảo vệ kỳ nghỉ của Quý khách khỏi rủi ro bị hủy, mất đặt phòng khách sạn, hỗ trợ sự cố y tế và hơn thế nữa.' 
-                    : 'Protect your vacation from cancellations, room booking losses, medical emergencies and more.'}
+                    : 'Protect your stay against cancellation risks, room loss, medical emergencies and more.'}
                 </p>
 
-                <ul className="text-xs font-bold text-slate-600 space-y-1.5">
-                  <li className="flex items-center gap-1.5 text-emerald-600">
-                    <span>✓</span> {language === 'vi' ? 'Hủy bỏ đặt phòng lên tới 20.000.000 đ' : 'Reservation cancellations up to 20,000,000 VND'}
+                <ul className="space-y-1.5 text-xs text-slate-700 font-bold">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> {language === 'vi' ? 'Hủy bỏ đặt phòng lên tới 20.000.000 đ' : 'Reservation cancellations up to 20,000,000 VND'}
                   </li>
-                  <li className="flex items-center gap-1.5 text-emerald-600">
-                    <span>✓</span> {language === 'vi' ? 'Hỗ trợ thất lạc hành lý và vật dụng cá nhân' : 'Baggage and personal items loss support'}
+                  <li className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> {language === 'vi' ? 'Hỗ trợ thất lạc hành lý và vật dụng cá nhân' : 'Baggage and personal items loss support'}
                   </li>
                 </ul>
 
                 <div className="flex justify-between items-center pt-2 text-xs font-bold">
                   <span className="text-slate-400">{language === 'vi' ? 'Phí bảo hiểm' : 'Insurance fee'}</span>
-                  <span className="text-slate-800 font-extrabold">
-                    VND 43.500
+                  <span className="text-slate-[#0194f3] font-black text-sm text-slate-800">
+                    {formatPrice(43500, currency)}
                   </span>
                 </div>
               </div>
@@ -583,59 +598,87 @@ export const Checkout: React.FC = () => {
           <div className="space-y-6 sticky top-6 self-start">
             
             {/* Trip summary card */}
-            {preview && (
-              <div className="bg-white border border-slate-150 p-6 rounded-2xl shadow-sm space-y-5">
-                <div className="inline-flex items-center gap-1 text-[10px] font-black text-[#0194f3] bg-[#ebf3ff] px-2.5 py-0.5 rounded-full border border-[#0194f3]/10 uppercase">
-                  👍 {language === 'vi' ? 'Lựa chọn tuyệt vời cho kỳ nghỉ' : 'Great holiday choice'}
-                </div>
+            {preview && (() => {
+              const targetRoomType = hotelDetail?.roomTypes?.find((rt: any) => rt.id === preview.roomTypeId);
+              const targetRatePlan = preview.ratePlanId ? targetRoomType?.ratePlans?.find((rp: any) => rp.id === preview.ratePlanId) : null;
+              const numGuests = preview.numGuests || targetRoomType?.capacity || 2;
+              const bedCount = targetRoomType?.bedCount || 1;
+              const bedType = targetRoomType?.bedType || (language === 'vi' ? 'giường' : 'bed');
 
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-slate-800 text-sm leading-snug">
-                    ({preview.quantity || 1}x) {roomTypeName || preview.roomTypeId}
-                  </h3>
+              const cancelPolicy = targetRatePlan?.cancellationPolicy || targetRoomType?.cancellationPolicy || 'NON_REFUNDABLE';
+              const isNonRefundable = cancelPolicy === 'NON_REFUNDABLE';
+              const freeCancelHours = targetRatePlan?.freeCancelHoursBefore || 24;
+              const includeBreakfast = targetRoomType?.includeBreakfast || false;
 
-                  {/* Check-in / out times */}
-                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3.5 rounded-xl border border-slate-100/80">
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase block">{language === 'vi' ? 'Nhận phòng' : 'Check-in'}</span>
-                      <p className="text-xs font-extrabold text-slate-800 leading-tight">
-                        {language === 'vi' ? formatVietnameseDate(preview.checkInDate) : formatEnglishDate(preview.checkInDate)}
-                      </p>
-                      <span className="text-[10px] font-bold text-slate-400 block mt-0.5">{language === 'vi' ? 'Từ 14:00' : 'From 14:00'}</span>
-                    </div>
-
-                    <div className="space-y-1 border-l border-slate-200 pl-4">
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase block">{language === 'vi' ? 'Trả phòng' : 'Check-out'}</span>
-                      <p className="text-xs font-extrabold text-slate-800 leading-tight">
-                        {language === 'vi' ? formatVietnameseDate(preview.checkOutDate) : formatEnglishDate(preview.checkOutDate)}
-                      </p>
-                      <span className="text-[10px] font-bold text-slate-400 block mt-0.5">{language === 'vi' ? 'Trước 12:00' : 'Before 12:00'}</span>
-                    </div>
+              return (
+                <div className="bg-white border border-slate-150 p-6 rounded-2xl shadow-sm space-y-5">
+                  <div className="inline-flex items-center gap-1.5 text-[10px] font-black text-[#0194f3] bg-[#ebf3ff] px-2.5 py-0.5 rounded-full border border-[#0194f3]/10 uppercase">
+                    <ThumbsUp className="w-3.5 h-3.5 text-[#0194f3]" /> {language === 'vi' ? 'Lựa chọn tuyệt vời cho kỳ nghỉ' : 'Great holiday choice'}
                   </div>
 
-                  {/* Duration label */}
-                  <p className="text-xs font-bold text-slate-700 text-center bg-[#ebf3ff]/40 py-1 rounded">
-                    {nights} {language === 'vi' ? 'đêm' : 'nights'}
-                  </p>
+                  <div className="space-y-3">
+                    <h3 className="font-extrabold text-slate-800 text-sm leading-snug">
+                      ({preview.quantity || 1}x) {roomTypeName || preview.roomTypeId}
+                    </h3>
 
-                  {/* Specs labels */}
-                  <div className="space-y-2 text-xs font-bold text-slate-600 pt-3 border-t border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <span>👥</span>
-                      <span>2 {language === 'vi' ? 'khách' : 'guests'} | 🛏️ 1 giường</span>
+                    {/* Check-in / out times */}
+                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3.5 rounded-xl border border-slate-100/80">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">{language === 'vi' ? 'Nhận phòng' : 'Check-in'}</span>
+                        <p className="text-xs font-extrabold text-slate-800 leading-tight">
+                          {language === 'vi' ? formatVietnameseDate(preview.checkInDate) : formatEnglishDate(preview.checkInDate)}
+                        </p>
+                        <span className="text-[10px] font-bold text-slate-400 block mt-0.5">{language === 'vi' ? `Từ ${hotelDetail?.checkInTime || '14:00'}` : `From ${hotelDetail?.checkInTime || '14:00'}`}</span>
+                      </div>
+
+                      <div className="space-y-1 border-l border-slate-200 pl-4">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">{language === 'vi' ? 'Trả phòng' : 'Check-out'}</span>
+                        <p className="text-xs font-extrabold text-slate-800 leading-tight">
+                          {language === 'vi' ? formatVietnameseDate(preview.checkOutDate) : formatEnglishDate(preview.checkOutDate)}
+                        </p>
+                        <span className="text-[10px] font-bold text-slate-400 block mt-0.5">{language === 'vi' ? `Trước ${hotelDetail?.checkOutTime || '12:00'}` : `Before ${hotelDetail?.checkOutTime || '12:00'}`}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-red-500">
-                      <span>🛡️</span>
-                      <span>{language === 'vi' ? 'Đặt phòng không hoàn tiền' : 'Non-refundable booking'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <span>📶</span>
-                      <span>{language === 'vi' ? 'Có kết nối WiFi miễn phí' : 'Free WiFi connection'}</span>
+
+                    {/* Duration label */}
+                    <p className="text-xs font-bold text-slate-700 text-center bg-[#ebf3ff]/40 py-1 rounded">
+                      {nights} {language === 'vi' ? 'đêm' : 'nights'}
+                    </p>
+
+                    {/* Specs labels (Dynamic Database Data) */}
+                    <div className="space-y-2 text-xs font-bold text-slate-600 pt-3 border-t border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span>
+                          {numGuests} {language === 'vi' ? 'khách' : 'guests'} | <Bed className="w-4 h-4 text-slate-400 inline mx-0.5" /> {bedCount} {bedType}
+                        </span>
+                      </div>
+
+                      <div className={`flex items-center gap-2 ${isNonRefundable ? 'text-rose-500' : 'text-emerald-700'}`}>
+                        <ShieldCheck className={`w-4 h-4 shrink-0 ${isNonRefundable ? 'text-rose-500' : 'text-emerald-600'}`} />
+                        <span>
+                          {isNonRefundable
+                            ? (language === 'vi' ? 'Đặt phòng không hoàn tiền' : 'Non-refundable booking')
+                            : (language === 'vi' ? `Miễn phí hủy phòng trước ${freeCancelHours}h` : `Free cancellation up to ${freeCancelHours}h`)}
+                        </span>
+                      </div>
+
+                      {includeBreakfast && (
+                        <div className="flex items-center gap-2 text-emerald-700">
+                          <Utensils className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{language === 'vi' ? 'Bao gồm bữa sáng miễn phí' : 'Free breakfast included'}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Wifi className="w-4 h-4 text-blue-500 shrink-0" />
+                        <span>{language === 'vi' ? 'Có kết nối WiFi miễn phí' : 'Free WiFi connection'}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Price breakdown and Payment details */}
             <div className="bg-white border border-slate-150 p-6 rounded-2xl shadow-sm space-y-5">
@@ -656,7 +699,7 @@ export const Checkout: React.FC = () => {
                 <div className="space-y-3.5 text-xs font-bold text-slate-600 animate-in fade-in duration-200">
                   <div className="flex justify-between">
                     <span className="text-slate-400">{language === 'vi' ? 'Giá phòng gốc' : 'Base room price'}:</span>
-                    <span>{baseRoomPriceBreakdown.toLocaleString('vi-VN')} đ</span>
+                    <span>{formatPrice(baseRoomPriceBreakdown, currency)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500 font-medium pl-2 italic">
                     <span>({preview.quantity || 1}x) {roomTypeName || preview.roomTypeId} ({nights} {language === 'vi' ? 'đêm' : 'nights'})</span>
@@ -664,20 +707,20 @@ export const Checkout: React.FC = () => {
 
                   <div className="flex justify-between">
                     <span className="text-slate-400">{language === 'vi' ? 'Thuế và phí' : 'Taxes & fees'}:</span>
-                    <span>{taxAndFeesBreakdown.toLocaleString('vi-VN')} đ</span>
+                    <span>{formatPrice(taxAndFeesBreakdown, currency)}</span>
                   </div>
 
                   {discount > 0 && (
                     <div className="flex justify-between text-green-600 font-extrabold">
                       <span>{language === 'vi' ? 'Mã giảm giá áp dụng' : 'Coupon discount'}:</span>
-                      <span>-{discount.toLocaleString('vi-VN')} đ</span>
+                      <span>-{formatPrice(discount, currency)}</span>
                     </div>
                   )}
 
                   {insuranceSelected && (
                     <div className="flex justify-between text-slate-700">
                       <span className="text-slate-400">{language === 'vi' ? 'Bảo hiểm Du lịch Chubb' : 'Chubb Travel Insurance'}:</span>
-                      <span>{(43500).toLocaleString('vi-VN')} đ</span>
+                      <span>{formatPrice(43500, currency)}</span>
                     </div>
                   )}
                 </div>
@@ -695,7 +738,7 @@ export const Checkout: React.FC = () => {
                   </span>
                 </div>
                 <span className="text-xl font-black text-[#ff4d42]">
-                  {finalPrice.toLocaleString('vi-VN')} đ
+                  {formatPrice(finalPrice, currency)}
                 </span>
               </div>
 
@@ -708,7 +751,10 @@ export const Checkout: React.FC = () => {
               >
                 {checkoutLoading ? (
                   <>
-                    <span className="animate-spin text-sm">⌛</span>
+                    <svg className="animate-spin w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
                     <span>{language === 'vi' ? 'Đang khởi tạo giao dịch...' : 'Initializing payment...'}</span>
                   </>
                 ) : (
@@ -736,14 +782,14 @@ export const Checkout: React.FC = () => {
             {/* Modal Header */}
             <div className="flex justify-between items-center border-b border-slate-100 p-6 pb-4">
               <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
-                <span>⚠️</span>
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                 <span>{language === 'vi' ? 'Lưu ý quan trọng' : 'Important notes'}</span>
               </h3>
               <button
                 onClick={() => setPolicyModalOpen(false)}
                 className="text-slate-400 hover:text-[#ff4d42] p-1.5 hover:bg-slate-50 rounded-lg transition-colors font-bold text-lg"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
             

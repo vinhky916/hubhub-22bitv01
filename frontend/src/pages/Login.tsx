@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link, useSearchParams } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { setAuth } from '../store/slices/authSlice';
+import type { RootState } from '../store';
 import apiClient from '../core/api/client';
 import { Sparkles, Mail, Lock, Eye, EyeOff, Home } from 'lucide-react';
 
@@ -9,6 +10,7 @@ export const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useDispatch();
+  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +22,18 @@ export const Login: React.FC = () => {
   const from = (location.state as any)?.from || '/';
 
   const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      if (user.role === 'ADMIN') {
+        navigate('/admin-dashboard', { replace: true });
+      } else if (user.role === 'HOTEL_OWNER') {
+        navigate('/owner-dashboard', { replace: true });
+      } else if (user.role === 'STAFF') {
+        navigate('/staff-dashboard', { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, navigate]);
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
@@ -52,7 +66,17 @@ export const Login: React.FC = () => {
           user: data.user,
           accessToken: data.accessToken
         }));
-        navigate(from, { replace: true });
+
+        let targetPath = from;
+        if (data.user?.role === 'ADMIN') {
+          targetPath = '/admin-dashboard';
+        } else if (data.user?.role === 'HOTEL_OWNER') {
+          targetPath = '/owner-dashboard';
+        } else if (data.user?.role === 'STAFF') {
+          targetPath = '/staff-dashboard';
+        }
+
+        navigate(targetPath, { replace: true });
       } else {
         setError(message || 'Đăng nhập thất bại');
       }

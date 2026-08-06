@@ -16,6 +16,14 @@ enum Role {
   STAFF
 }
 
+enum RoomHousekeepingStatus {
+  CLEAN
+  DIRTY
+  IN_USE
+  MAINTENANCE
+}
+
+
 enum BookingStatus {
   PENDING
   PAYMENT_PROCESSING
@@ -39,6 +47,15 @@ enum HotelStatus {
   APPROVED
   REJECTED
   SUSPENDED
+}
+
+enum PropertyType {
+  HOTEL       // Khách sạn
+  APARTMENT   // Căn hộ / Chung cư dịch vụ
+  VILLA       // Villa / Biệt thự
+  RESORT      // Resort / Khu nghỉ dưỡng
+  HOMESTAY    // Homestay / Nhà dân
+  GUESTHOUSE  // Nhà nghỉ
 }
 
 model User {
@@ -74,6 +91,8 @@ model User {
   auditLogs     AuditLog[]
   loyaltyPoints Int @default(0)
   loyaltyTransactions LoyaltyTransaction[]
+  staffHotelId  String?
+  staffHotel    Hotel?         @relation("HotelStaff", fields: [staffHotelId], references: [id], onDelete: SetNull)
 }
 
 model RefreshToken {
@@ -145,6 +164,7 @@ model Hotel {
   latitude      Float?
   longitude     Float?
   starRating    Int            @default(3)
+  propertyType  PropertyType   @default(HOTEL)
   status        HotelStatus    @default(PENDING)
   rejectReason  String?
   checkInTime   String?        @default("14:00")
@@ -167,6 +187,7 @@ model Hotel {
   coupons       Coupon[]
   conversations Conversation[]
   nearbyLocations NearbyLocation[]
+  staffMembers  User[]         @relation("HotelStaff")
 }
 
 model HotelImage {
@@ -202,6 +223,7 @@ model RoomType {
   basePrice     Decimal             @db.Decimal(10, 2)
   capacity      Int                 // Số lượng khách tối đa
   bedCount      Int                 @default(1)
+  bedType       String?             @default("Giường Đôi") // "Giường Đơn", "Giường Đôi", "Giường Queen", "Giường King", "Giường Tầng"...
   size          Int?                // Diện tích (m2)
   amenities         String[]            // Các tiện ích riêng của phòng
   includeBreakfast  Boolean             @default(false)
@@ -260,13 +282,14 @@ model RoomImage {
 }
 
 model Room {
-  id          String   @id @default(uuid())
-  roomTypeId  String
-  roomNumber  String
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  id                 String                 @id @default(uuid())
+  roomTypeId         String
+  roomNumber         String
+  isAvailable        Boolean                @default(true)
+  housekeepingStatus RoomHousekeepingStatus @default(CLEAN)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  roomType           RoomType               @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
 }
 
 // Bảng lịch giá động & Khóa phòng
@@ -353,6 +376,9 @@ model Review {
   ratingOverall     Float    // Trung bình cộng của 5 tiêu chí
   comment           String
   images            String[]
+  ownerReply        String?
+  ownerRepliedAt    DateTime?
+  likesCount        Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

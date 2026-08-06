@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { setSearchCriteria } from '../store/slices/searchSlice';
+import { setSearchCriteria, getLocalDateString } from '../store/slices/searchSlice';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
 import { MapPin, Building2, Heart, Calendar, Users, ChevronDown, Clock, ChevronLeft, ChevronRight, X, Star } from 'lucide-react';
 import { formatPrice } from '../utils/price';
+import { formatDateVN, formatFullDateVN } from '../utils/date';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';
+import { useModal } from '../components/common/ModalContext';
 
 const removeVietnameseTones = (str: string) => {
   str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
@@ -51,28 +53,7 @@ const translateProvinceName = (name: string, lang: string) => {
   }
 };
 
-const translateCategoryName = (name: string, lang: string) => {
-  if (!name) return '';
-  if (lang === 'vi') return name;
-  switch (name.toLowerCase()) {
-    case 'khách sạn':
-    case 'hotel':
-      return 'Hotel';
-    case 'khu nghỉ dưỡng':
-    case 'resort':
-      return 'Resort';
-    case 'biệt thự / villa':
-    case 'villa':
-      return 'Villa';
-    case 'căn hộ':
-    case 'apartment':
-      return 'Apartment';
-    case 'homestay':
-      return 'Homestay';
-    default:
-      return name;
-  }
-};
+
 
 const translateAddress = (address: string, district: string, province: string, lang: string) => {
   if (lang === 'vi') {
@@ -86,12 +67,12 @@ const translateAddress = (address: string, district: string, province: string, l
 
     res = res.replace(/^Quận\s+(\d+)/i, 'District $1');
     res = res.replace(/^Phường\s+(\d+)/i, 'Ward $1');
-    
+
     res = res.replace(/^Quận\s+(.+)/i, (_, p1) => {
       if (/^\d+/.test(p1.trim())) return `District ${p1.trim()}`;
       return `${removeVietnameseTones(p1.trim())} District`;
     });
-    
+
     res = res.replace(/^Phường\s+(.+)/i, (_, p1) => {
       if (/^\d+/.test(p1.trim())) return `Ward ${p1.trim()}`;
       return `${removeVietnameseTones(p1.trim())} Ward`;
@@ -104,7 +85,7 @@ const translateAddress = (address: string, district: string, province: string, l
     res = res.replace(/^Thị xã\s+(.+)/i, (_, p1) => `${removeVietnameseTones(p1.trim())} Town`);
     res = res.replace(/^Huyện\s+(.+)/i, (_, p1) => `${removeVietnameseTones(p1.trim())} District`);
     res = res.replace(/^Xã\s+(.+)/i, (_, p1) => `${removeVietnameseTones(p1.trim())} Commune`);
-    
+
     const cleanProvince = res.replace(/^Thành phố\s+/i, '').replace(/^Tỉnh\s+/i, '').trim();
     if (cleanProvince.includes('Hồ Chí Minh') || cleanProvince.toLowerCase().includes('hcm') || cleanProvince.toLowerCase().includes('ho chi minh')) {
       return 'Ho Chi Minh City';
@@ -139,7 +120,7 @@ const translateAddress = (address: string, district: string, province: string, l
   const cleanProv = translateValue(province);
 
   const parts = [cleanAddr, cleanDist, cleanProv].filter(Boolean);
-  
+
   const uniqueParts: string[] = [];
   parts.forEach(p => {
     if (!uniqueParts.some(up => up.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(up.toLowerCase()))) {
@@ -166,6 +147,7 @@ interface FeaturedHotel {
   originalPriceFrom?: number;
   averageRating: number;
   category: string;
+  propertyType?: string;
   images: { url: string }[];
   isFavorite: boolean;
 }
@@ -211,7 +193,16 @@ const homeTranslations = {
     durations: ["Cuối tuần", "1 tuần", "Một tháng", "Khác"],
     adultsLabel: 'Người lớn',
     childrenLabel: 'Trẻ em',
-    roomsLabel: 'Số phòng'
+    roomsLabel: 'Số phòng',
+    whyChooseTitle: 'Vì sao lại chọn Cloud Booking?',
+    whyItem1Title: 'Đáp ứng mọi nhu cầu của bạn',
+    whyItem1Desc: 'Khám phá nhiều loại hình lưu trú với mức giá hợp lý, vị trí thuận tiện và dịch vụ chất lượng, giúp mỗi chuyến đi trở nên dễ dàng hơn.',
+    whyItem2Title: 'Tùy chọn đặt chỗ linh hoạt',
+    whyItem2Desc: 'Kế hoạch thay đổi bất ngờ? Đừng lo! Đổi lịch hoặc Hoàn tiền dễ dàng.',
+    whyItem3Title: 'Thanh toán an toàn và thuận tiện',
+    whyItem3Desc: 'Tận hưởng nhiều cách thanh toán an toàn, bằng loại tiền thuận tiện nhất cho bạn.',
+    whyItem4Title: 'Dịch vụ khách hàng đáng tin cậy, hoạt động 24/7',
+    whyItem4Desc: 'Chúng tôi luôn sẵn sàng giúp đỡ bạn'
   },
   en: {
     heroTitle: 'Discover your next stay with',
@@ -253,7 +244,16 @@ const homeTranslations = {
     durations: ["Weekend", "1 week", "One month", "Other"],
     adultsLabel: 'Adults',
     childrenLabel: 'Children',
-    roomsLabel: 'Rooms'
+    roomsLabel: 'Rooms',
+    whyChooseTitle: 'Why Choose Cloud Booking?',
+    whyItem1Title: 'Fulfill All Your Travel Needs',
+    whyItem1Desc: 'Explore a variety of accommodations with great prices, convenient locations, and quality services for every journey.',
+    whyItem2Title: 'Flexible Booking Options',
+    whyItem2Desc: 'Plans change unexpectedly? No worries! Reschedule or Refund easily.',
+    whyItem3Title: 'Safe & Convenient Payment',
+    whyItem3Desc: 'Enjoy multiple secure payment methods in the currency most convenient for you.',
+    whyItem4Title: 'Reliable 24/7 Customer Service',
+    whyItem4Desc: 'We are always ready to help you'
   }
 };
 
@@ -264,13 +264,15 @@ export const Home: React.FC = () => {
   const { isAuthenticated } = useSelector((state: RootState) => state.auth);
   const { language, currency } = useSelector((state: RootState) => state.settings);
   const t = homeTranslations[language];
+  const { showAlert } = useModal();
 
   const [provinceId, setProvinceId] = useState(searchCriteria.provinceId);
   const [destInputText, setDestInputText] = useState('');
   const [destError, setDestError] = useState(false);
+  const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
   const [checkIn, setCheckIn] = useState(searchCriteria.checkInDate || '');
   const [checkOut, setCheckOut] = useState(searchCriteria.checkOutDate || '');
-  
+
   // Custom Popover States
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
@@ -294,7 +296,7 @@ export const Home: React.FC = () => {
   const [showDestPopover, setShowDestPopover] = useState(false);
   const [showDatePopover, setShowDatePopover] = useState(false);
   const [showGuestPopover, setShowGuestPopover] = useState(false);
-  const [dateTab, setDateTab] = useState<'calendar' | 'flexible'>('calendar');
+  const [_dateTab, _setDateTab] = useState<'calendar' | 'flexible'>('calendar');
 
   // Dynamic Recent Searches state
   const [recentSearches, setRecentSearches] = useState<any[]>([]);
@@ -312,9 +314,6 @@ export const Home: React.FC = () => {
   const month2 = month1 === 11 ? 0 : month1 + 1;
   const year2 = month1 === 11 ? year1 + 1 : year1;
 
-  // Month slider state for flexible tab
-  const [flexMonthStartIndex, setFlexMonthStartIndex] = useState(0);
-  const [selectedFlexMonth, setSelectedFlexMonth] = useState<{ month: number; year: number } | null>(null);
   const [catStartIndex, setCatStartIndex] = useState(0);
   const [activeFeaturedTab, setActiveFeaturedTab] = useState('all');
   const [featuredStartIndex, setFeaturedStartIndex] = useState(0);
@@ -385,11 +384,12 @@ export const Home: React.FC = () => {
   };
 
   const CATEGORIES = [
-    { id: 'hotel', name: 'Khách sạn', slug: 'khach-san', image: '/hotel.jpg' },
-    { id: 'resort', name: 'Khu nghỉ dưỡng', slug: 'resort', image: '/resort.jpg' },
-    { id: 'villa', name: 'Biệt thự / Villa', slug: 'villa', image: '/villa.jpg' },
-    { id: 'apartment', name: 'Căn hộ', slug: 'homestay', image: '/apartment.jpg' },
-    { id: 'homestay', name: 'Homestay', slug: 'homestay', image: '/homestay.webp' }
+    { id: 'HOTEL', name: 'Khách sạn', slug: 'HOTEL', image: '/hotel.jpg' },
+    { id: 'RESORT', name: 'Resort', slug: 'RESORT', image: '/resort.jpg' },
+    { id: 'VILLA', name: 'Villa', slug: 'VILLA', image: '/villa.jpg' },
+    { id: 'APARTMENT', name: 'Căn hộ', slug: 'APARTMENT', image: '/apartment.jpg' },
+    { id: 'HOMESTAY', name: 'Homestay', slug: 'HOMESTAY', image: '/homestay.webp' },
+    { id: 'GUESTHOUSE', name: 'Nhà nghỉ', slug: 'GUESTHOUSE', image: '/nhanghi.jpg' },
   ];
 
   const TRENDING_DESTINATIONS = [
@@ -431,16 +431,22 @@ export const Home: React.FC = () => {
   ];
 
   const getProvinceName = (id: string) => {
+    if (!id) return '';
     const prov = provincesList.find((p) => p.id === id);
-    return prov ? prov.name : '';
+    if (prov) return prov.name;
+    const staticProv = VIETNAM_PROVINCES.find((p) => p.id === id);
+    return staticProv ? staticProv.name : '';
   };
 
   // Synchronize destination input text on provinceId change or initial load
   useEffect(() => {
-    if (provinceId) {
-      setDestInputText(translateProvinceName(getProvinceName(provinceId), language));
+    if (provinceId && !selectedHotelId) {
+      const pName = getProvinceName(provinceId);
+      if (pName) {
+        setDestInputText(translateProvinceName(pName, language));
+      }
     }
-  }, [provinceId, language]);
+  }, [provinceId, language, provincesList, selectedHotelId]);
 
   // Clear destination error when input has value
   useEffect(() => {
@@ -630,14 +636,18 @@ export const Home: React.FC = () => {
       localStorage.setItem('recent_searches', JSON.stringify(list));
     }
 
+    if (selectedHotelId) {
+      navigate(`/hotel/${selectedHotelId}`);
+      return;
+    }
+
     navigate('/search');
   };
 
 
 
-  const handleCategoryClick = (categorySlug: string) => {
-    dispatch(setSearchCriteria({ categoryId: categorySlug }));
-    navigate('/search');
+  const handleCategoryClick = (propertyTypeSlug: string) => {
+    navigate(`/search?propertyType=${propertyTypeSlug}`);
   };
 
   const handleTrendingClick = (dest: typeof TRENDING_DESTINATIONS[0]) => {
@@ -654,7 +664,7 @@ export const Home: React.FC = () => {
   const handleToggleFavorite = async (e: React.MouseEvent, hotelId: string) => {
     e.stopPropagation();
     if (!isAuthenticated) {
-      alert('Vui lòng đăng nhập để lưu khách sạn yêu thích!');
+      await showAlert('Vui lòng đăng nhập để lưu khách sạn yêu thích!', { type: 'warning', title: 'Yêu cầu đăng nhập' });
       navigate('/login');
       return;
     }
@@ -675,6 +685,7 @@ export const Home: React.FC = () => {
   const handleDestInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setDestInputText(val);
+    setSelectedHotelId(null);
     setShowDestPopover(true);
 
     const matched = provincesList.find((p) => p.name.toLowerCase() === val.toLowerCase());
@@ -686,6 +697,7 @@ export const Home: React.FC = () => {
   };
 
   const handleSelectRecentSearch = (searchItem: any) => {
+    setSelectedHotelId(null);
     setProvinceId(searchItem.provinceId);
     setDestInputText(searchItem.provinceName);
     setCheckIn(searchItem.checkIn || '');
@@ -742,8 +754,9 @@ export const Home: React.FC = () => {
     }
   };
 
+  const todayStr = getLocalDateString(new Date(), 0);
+
   const handleDayClick = (dateStr: string) => {
-    const todayStr = today.toISOString().split('T')[0];
     if (dateStr < todayStr) return;
 
     if (!checkIn || (checkIn && checkOut)) {
@@ -754,6 +767,7 @@ export const Home: React.FC = () => {
       if (dateStr >= checkIn) {
         setCheckOut(dateStr);
         setHoveredDate(null);
+        setShowDatePopover(false);
       } else {
         setCheckIn(dateStr);
         setHoveredDate(null);
@@ -769,19 +783,19 @@ export const Home: React.FC = () => {
 
   const formatDateDisplay = () => {
     if (checkIn && checkOut) {
-      const inDate = new Date(checkIn);
-      const outDate = new Date(checkOut);
-      const daysOfWeek = language === 'vi' 
-        ? ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
+      const inDate = new Date(checkIn + 'T00:00:00');
+      const outDate = new Date(checkOut + 'T00:00:00');
+      const daysOfWeek = language === 'vi'
+        ? ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
         : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      
+
       const inStr = language === 'vi'
-        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} thg ${inDate.getMonth() + 1}`
+        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} tháng ${inDate.getMonth() + 1}`
         : `${daysOfWeek[inDate.getDay()]}, ${inDate.toLocaleString('en-US', { month: 'short' })} ${inDate.getDate()}`;
       const outStr = language === 'vi'
-        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} thg ${outDate.getMonth() + 1}`
+        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} tháng ${outDate.getMonth() + 1}`
         : `${daysOfWeek[outDate.getDay()]}, ${outDate.toLocaleString('en-US', { month: 'short' })} ${outDate.getDate()}`;
-      return `${inStr} — ${outStr}`;
+      return `${inStr} – ${outStr}`;
     }
     return language === 'vi' ? 'Nhận phòng — Trả phòng' : 'Check-in — Check-out';
   };
@@ -797,64 +811,22 @@ export const Home: React.FC = () => {
     return false;
   };
 
-  // Generate 12 months for flexible slider starting from today
-  const getFlexibleMonths = () => {
-    const list = [];
-    let m = today.getMonth();
-    let y = today.getFullYear();
-    for (let i = 0; i < 12; i++) {
-      list.push({
-        label: language === 'vi' ? `Th ${m + 1}\n${y}` : `${new Date(y, m).toLocaleString('en-US', { month: 'short' })}\n${y}`,
-        monthNum: m,
-        yearNum: y
-      });
-      m++;
-      if (m > 11) {
-        m = 0;
-        y++;
-      }
-    }
-    return list;
-  };
 
-  const flexibleMonths = getFlexibleMonths();
-  const visibleFlexMonths = flexibleMonths.slice(flexMonthStartIndex, flexMonthStartIndex + 5);
-
-  const handleFlexNext = () => {
-    if (flexMonthStartIndex < flexibleMonths.length - 5) {
-      setFlexMonthStartIndex(flexMonthStartIndex + 1);
-    }
-  };
-
-  const handleFlexPrev = () => {
-    if (flexMonthStartIndex > 0) {
-      setFlexMonthStartIndex(flexMonthStartIndex - 1);
-    }
-  };
-
-  const handleSelectFlexMonth = (m: { monthNum: number; yearNum: number }) => {
-    setSelectedFlexMonth({ month: m.monthNum, year: m.yearNum });
-    const startStr = `${m.yearNum}-${String(m.monthNum + 1).padStart(2, '0')}-01`;
-    const lastDay = new Date(m.yearNum, m.monthNum + 1, 0).getDate();
-    const endStr = `${m.yearNum}-${String(m.monthNum + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    setCheckIn(startStr);
-    setCheckOut(endStr);
-  };
 
   const matchedProvinces = destInputText.trim()
     ? provincesList.filter((p) => {
-        const normInput = removeVietnameseTones(destInputText.trim().toLowerCase());
-        const normName = removeVietnameseTones(p.name.toLowerCase());
-        if (normName.includes(normInput) || normInput.includes(normName)) return true;
-        return p.keywords?.some((k) => {
-          const normK = removeVietnameseTones(k.toLowerCase().trim());
-          if (!normK) return false;
-          if (normK === normInput) return true;
-          if (normK.length >= 3 && normInput.includes(normK)) return true;
-          if (normK.includes(normInput)) return true;
-          return false;
-        });
-      })
+      const normInput = removeVietnameseTones(destInputText.trim().toLowerCase());
+      const normName = removeVietnameseTones(p.name.toLowerCase());
+      if (normName.includes(normInput) || normInput.includes(normName)) return true;
+      return p.keywords?.some((k) => {
+        const normK = removeVietnameseTones(k.toLowerCase().trim());
+        if (!normK) return false;
+        if (normK === normInput) return true;
+        if (normK.length >= 3 && normInput.includes(normK)) return true;
+        if (normK.includes(normInput)) return true;
+        return false;
+      });
+    })
     : [];
 
   const monthNames = [
@@ -910,7 +882,7 @@ export const Home: React.FC = () => {
             className="bg-[#febb02] p-[4px] rounded-lg flex flex-col lg:flex-row gap-[4px] shadow-[0_15px_30px_rgba(0,0,0,0.15)] w-full items-stretch"
           >
             {/* Destination Panel - Interactive text input */}
-            <div className={`flex-grow lg:flex-[2.4] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
+            <div className={`flex-grow lg:flex-[3.0] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
               <Building2 className={`w-6 h-6 shrink-0 ${destError ? 'text-red-500 animate-bounce' : 'text-slate-400'}`} />
               <input
                 type="text"
@@ -943,7 +915,7 @@ export const Home: React.FC = () => {
                   <div className="fixed inset-0 z-30" onClick={() => setShowDestPopover(false)} />
                   <div className="absolute top-full left-0 mt-2 w-full sm:w-[400px] bg-white rounded-lg shadow-2xl border border-slate-100 p-4 z-40 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150 max-h-80 overflow-y-auto">
                     <div className="space-y-4 text-left">
-                      
+
                       {/* Case 1: Search input is empty -> Show Recent searches and Popular destinations */}
                       {!destInputText.trim() ? (
                         <>
@@ -1023,7 +995,9 @@ export const Home: React.FC = () => {
                                     <div
                                       key={`hotel-${item.id}`}
                                       onClick={() => {
-                                        navigate(`/hotel/${item.id}`);
+                                        setSelectedHotelId(item.id);
+                                        setDestInputText(item.name);
+                                        if (item.provinceId) setProvinceId(item.provinceId);
                                         setShowDestPopover(false);
                                       }}
                                       className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
@@ -1051,7 +1025,7 @@ export const Home: React.FC = () => {
             </div>
 
             {/* Dates Panel & Custom popover calendar grid */}
-            <div className="flex-grow lg:flex-[2.0] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+            <div className={`flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative`}>
               <Calendar className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
@@ -1069,241 +1043,130 @@ export const Home: React.FC = () => {
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowDatePopover(false)} />
                   <div className="absolute top-full left-1/2 transform -translate-x-1/2 lg:translate-x-0 lg:left-0 mt-2 w-[90vw] sm:w-[760px] bg-white rounded-lg shadow-2xl border border-slate-150 p-5 z-40 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="space-y-4">
-                      {/* Tabs */}
-                      <div className="flex pb-1">
+                    <div className="space-y-4 text-left">
+                      {/* Calendar Header with navigation arrows and Month names aligned on the same row */}
+                      <div className="flex justify-between items-center px-1">
                         <button
                           type="button"
-                          onClick={() => setDateTab('calendar')}
-                          className={`flex-1 pb-2 text-sm font-bold border-b-2 transition-colors ${
-                            dateTab === 'calendar' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'
-                          }`}
+                          onClick={handlePrevMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-650 shrink-0"
                         >
-                          Lịch
+                          <ChevronLeft className="w-5 h-5" />
                         </button>
+
+                        {/* Shifted months headers up here */}
+                        <div className="flex-1 grid grid-cols-2 gap-12 text-center">
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month1]} năm {year1}
+                          </h4>
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month2]} năm {year2}
+                          </h4>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() => setDateTab('flexible')}
-                          className={`flex-1 pb-2 text-sm font-bold border-b-2 transition-colors ${
-                            dateTab === 'flexible' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'
-                          }`}
+                          onClick={handleNextMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-655 shrink-0"
                         >
-                          Ngày linh hoạt
+                          <ChevronRight className="w-5 h-5" />
                         </button>
                       </div>
 
-                      {dateTab === 'calendar' ? (
-                        <div className="space-y-4 text-left pt-2">
-                          {/* Calendar Header with navigation arrows and Month names aligned on the same row */}
-                          <div className="flex justify-between items-center px-1">
-                            <button
-                              type="button"
-                              onClick={handlePrevMonths}
-                              className="p-1 rounded-full hover:bg-slate-100 text-slate-650 shrink-0"
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                            </button>
-                            
-                            {/* Shifted months headers up here */}
-                            <div className="flex-1 grid grid-cols-2 gap-12 text-center">
-                              <h4 className="font-extrabold text-base text-slate-900 capitalize">
-                                {monthNames[month1]} năm {year1}
-                              </h4>
-                              <h4 className="font-extrabold text-base text-slate-900 capitalize">
-                                {monthNames[month2]} năm {year2}
-                              </h4>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={handleNextMonths}
-                              className="p-1 rounded-full hover:bg-slate-100 text-slate-655 shrink-0"
-                            >
-                              <ChevronRight className="w-5 h-5" />
-                            </button>
+                      {/* Two months calendar layout side-by-side */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 pt-2">
+                        {/* Month 1 */}
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year1, month1).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
-                          {/* Two months calendar layout side-by-side */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 pt-2">
-                            {/* Month 1 */}
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
-                                <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-                              </div>
-                              <div className="grid grid-cols-7 gap-1.5 text-center">
-                                {getDaysInMonth(year1, month1).map((day, idx) => {
-                                  if (!day) return <div key={idx} className="h-10 w-10" />;
-                                  const dateStr = day.toISOString().split('T')[0];
-                                  const dayNum = day.getDate();
-                                  const active = isSelected(dateStr);
-                                  const range = isInRange(dateStr);
-                                  const hoverRange = isInHoverRange(dateStr);
-                                  const isPast = dateStr < today.toISOString().split('T')[0];
-                                  const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
-
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      disabled={isPast}
-                                      onClick={() => handleDayClick(dateStr)}
-                                      onMouseEnter={() => handleDayMouseEnter(dateStr)}
-                                      onMouseLeave={() => setHoveredDate(null)}
-                                      className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all ${
-                                        active
-                                          ? 'bg-blue-600 text-white font-bold'
-                                          : range || hoverRange
-                                          ? 'bg-blue-50 text-blue-700'
-                                          : isHoverEnd
-                                          ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  disabled={isPast}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
                                           : isPast
-                                          ? 'text-slate-350 cursor-not-allowed'
-                                          : 'text-slate-700 hover:bg-slate-100'
-                                      }`}
-                                    >
-                                      {dayNum}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {/* Month 2 */}
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
-                                <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-                              </div>
-                              <div className="grid grid-cols-7 gap-1.5 text-center">
-                                {getDaysInMonth(year2, month2).map((day, idx) => {
-                                  if (!day) return <div key={idx} className="h-10 w-10" />;
-                                  const dateStr = day.toISOString().split('T')[0];
-                                  const dayNum = day.getDate();
-                                  const active = isSelected(dateStr);
-                                  const range = isInRange(dateStr);
-                                  const hoverRange = isInHoverRange(dateStr);
-                                  const isPast = dateStr < today.toISOString().split('T')[0];
-                                  const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
-
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      disabled={isPast}
-                                      onClick={() => handleDayClick(dateStr)}
-                                      onMouseEnter={() => handleDayMouseEnter(dateStr)}
-                                      onMouseLeave={() => setHoveredDate(null)}
-                                      className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all ${
-                                        active
-                                          ? 'bg-blue-600 text-white font-bold'
-                                          : range || hoverRange
-                                          ? 'bg-blue-50 text-blue-700'
-                                          : isHoverEnd
-                                          ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
-                                          : isPast
-                                          ? 'text-slate-350 cursor-not-allowed'
-                                          : 'text-slate-700 hover:bg-slate-100'
-                                      }`}
-                                    >
-                                      {dayNum}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Done button aligned right */}
-                          <div className="flex justify-end pt-4 border-t border-slate-100">
-                            <button
-                              type="button"
-                              onClick={() => setShowDatePopover(false)}
-                              className="bg-[#006ce4] hover:bg-[#0056b3] text-white font-bold text-sm px-8 py-2.5 rounded-lg transition-colors"
-                            >
-                              Xong
-                            </button>
+                                            ? 'bg-slate-100 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
+                                >
+                                  {dayNum}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      ) : (
-                        <div className="space-y-8 text-left pt-2">
-                          {/* Part 1: Duration selection - Enlarged text sizes */}
-                          <div>
-                            <p className="font-extrabold text-base text-slate-800 mb-3">Bạn muốn ở bao lâu?</p>
-                            <div className="flex gap-6">
-                              {["Cuối tuần", "1 tuần", "Một tháng", "Khác"].map((dur, i) => (
-                                <label key={i} className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
-                                  <input type="radio" name="flexible-dur" defaultChecked={i === 1} className="w-4 h-4 text-blue-600 cursor-pointer" />
-                                  <span>{dur}</span>
-                                </label>
-                              ))}
-                            </div>
+
+                        {/* Month 2 */}
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year2, month2).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
-                          {/* Part 2: Month slider - Display 5 columns, cards twice as narrow */}
-                          <div className="space-y-3">
-                            <p className="font-extrabold text-base text-slate-800">Bạn muốn đi khi nào?</p>
-                            <div className="relative px-8">
-                              {/* Prev Button - Hidden initially */}
-                              {flexMonthStartIndex > 0 && (
+                              return (
                                 <button
+                                  key={idx}
                                   type="button"
-                                  onClick={handleFlexPrev}
-                                  className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white border border-slate-200 rounded-full p-1.5 shadow-md z-10 hover:bg-slate-50 transition-all"
+                                  disabled={isPast}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
+                                          : isPast
+                                            ? 'bg-slate-100 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
                                 >
-                                  <ChevronLeft className="w-4 h-4 text-slate-655" />
+                                  {dayNum}
                                 </button>
-                              )}
-
-                              {/* Month lists horizontally using grid-cols-5 */}
-                              <div className="grid grid-cols-5 gap-3">
-                                {visibleFlexMonths.map((m) => {
-                                  const active = selectedFlexMonth && selectedFlexMonth.month === m.monthNum && selectedFlexMonth.year === m.yearNum;
-                                  return (
-                                    <div
-                                      key={m.label}
-                                      onClick={() => handleSelectFlexMonth(m)}
-                                      className={`border rounded-lg h-32 flex flex-col items-center justify-center p-3 text-center cursor-pointer transition-all ${
-                                        active
-                                          ? 'border-blue-600 bg-blue-50/20 shadow-sm ring-1 ring-blue-500/20'
-                                          : 'border-slate-200 hover:border-blue-600 hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      <Calendar className={`w-5 h-5 mx-auto mb-3 ${active ? 'text-blue-600' : 'text-slate-400'}`} />
-                                      <span className="text-sm font-extrabold text-slate-800 leading-tight block">
-                                        {m.label.split('\n')[0]}
-                                      </span>
-                                      <span className="text-[10px] font-bold text-slate-500 block mt-0.5">
-                                        {m.label.split('\n')[1]}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Next Button - Hidden at the end */}
-                              {flexMonthStartIndex < flexibleMonths.length - 5 && (
-                                <button
-                                  type="button"
-                                  onClick={handleFlexNext}
-                                  className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white border border-slate-200 rounded-full p-1.5 shadow-md z-10 hover:bg-slate-50 transition-all"
-                                >
-                                  <ChevronRight className="w-4 h-4 text-slate-655" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Flexible Done button aligned right */}
-                          <div className="flex justify-end pt-4 border-t border-slate-100">
-                            <button
-                              type="button"
-                              onClick={() => setShowDatePopover(false)}
-                              className="bg-[#006ce4] hover:bg-[#0056b3] text-white font-bold text-sm px-8 py-2.5 rounded-lg transition-colors"
-                            >
-                              Xong
-                            </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      )}
+                      </div>
+
+
                     </div>
                   </div>
                 </>
@@ -1311,7 +1174,7 @@ export const Home: React.FC = () => {
             </div>
 
             {/* Guests Panel */}
-            <div className="flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+            <div className="flex-grow lg:flex-[2.2] bg-white px-4 h-[62px] flex items-center gap-3 relative">
               <Users className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
@@ -1473,18 +1336,17 @@ export const Home: React.FC = () => {
                         <p className="text-xs font-bold text-white line-clamp-1">{c.description || minText}</p>
                         <div className="space-y-0.5 text-[10px] text-blue-200 font-medium">
                           <p>{minText}{maxText}</p>
-                          <p>Hạn sử dụng: {new Date(c.endDate).toLocaleDateString('vi-VN')}</p>
+                          <p>Hạn sử dụng: {formatDateVN(c.endDate)}</p>
                         </div>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => handleCopyAdminCoupon(c.code)}
-                        className={`w-full py-2 px-4 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm ${
-                          isCopied
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:shadow-md'
-                        }`}
+                        className={`w-full py-2 px-4 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm ${isCopied
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:shadow-md'
+                          }`}
                       >
                         {isCopied ? (
                           <>✓ {language === 'vi' ? 'Đã sao chép mã!' : 'Code copied!'}</>
@@ -1544,10 +1406,11 @@ export const Home: React.FC = () => {
                         src={cat.image}
                         alt={cat.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=500&q=80'; }}
                       />
                     </div>
                     <div className="text-left">
-                      <h3 className="font-extrabold text-slate-900 text-base group-hover:text-primary transition-colors">{translateCategoryName(cat.name, language)}</h3>
+                      <h3 className="font-extrabold text-slate-900 text-base group-hover:text-primary transition-colors">{cat.name}</h3>
                     </div>
                   </div>
                 );
@@ -1566,7 +1429,7 @@ export const Home: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Card 1 */}
             <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-premium overflow-hidden shadow-sm flex flex-col sm:flex-row justify-between text-white relative min-h-[160px] group border border-slate-100/10">
-              <div className="absolute inset-0 bg-cover bg-center mix-blend-overlay opacity-25 group-hover:scale-105 transition-transform duration-500" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80')" }}></div>
+              <div className="absolute inset-0 bg-cover bg-center mix-blend-overlay opacity-25 group-hover:scale-105 transition-transform duration-500" style={{ backgroundImage: "url('/uudai1.jpg')" }}></div>
               <div className="p-6 flex flex-col justify-between relative z-10 space-y-4 max-w-[65%] text-left">
                 <div className="space-y-1">
                   <h3 className="font-extrabold text-lg sm:text-xl text-amber-300">{t.dealsCard1Title}</h3>
@@ -1582,7 +1445,7 @@ export const Home: React.FC = () => {
               </div>
               <div className="hidden sm:block w-[35%] h-full min-h-[160px] relative">
                 <img
-                  src="https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80"
+                  src="/uudai1.jpg"
                   alt="Ưu đãi đầu năm"
                   className="w-full h-full object-cover rounded-l-premium"
                 />
@@ -1591,7 +1454,7 @@ export const Home: React.FC = () => {
 
             {/* Card 2 */}
             <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-amber-950 rounded-premium overflow-hidden shadow-sm flex flex-col sm:flex-row justify-between text-white relative min-h-[160px] group border border-slate-100/10">
-              <div className="absolute inset-0 bg-cover bg-center mix-blend-overlay opacity-25 group-hover:scale-105 transition-transform duration-500" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=800&q=80')" }}></div>
+              <div className="absolute inset-0 bg-cover bg-center mix-blend-overlay opacity-25 group-hover:scale-105 transition-transform duration-500" style={{ backgroundImage: "url('/uudai2.jpg')" }}></div>
               <div className="p-6 flex flex-col justify-between relative z-10 space-y-4 max-w-[65%] text-left">
                 <div className="space-y-1">
                   <h3 className="font-extrabold text-lg sm:text-xl text-yellow-400">{t.dealsCard2Title}</h3>
@@ -1607,7 +1470,7 @@ export const Home: React.FC = () => {
               </div>
               <div className="hidden sm:block w-[35%] h-full min-h-[160px] relative">
                 <img
-                  src="https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=400&q=80"
+                  src="/uudai2.jpg"
                   alt="Kỳ nghỉ resort"
                   className="w-full h-full object-cover rounded-l-premium"
                 />
@@ -1615,6 +1478,8 @@ export const Home: React.FC = () => {
             </div>
           </div>
         </section>
+
+
 
         {/* Điểm đến đang thịnh hành */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -1638,7 +1503,7 @@ export const Home: React.FC = () => {
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/10 to-black/40 z-10"></div>
-                  
+
                   <div className="absolute top-5 left-5 z-20 flex items-center">
                     <span className="font-extrabold text-white text-xl sm:text-2xl drop-shadow-md">
                       {translateProvinceName(dest.name, language)}
@@ -1665,7 +1530,7 @@ export const Home: React.FC = () => {
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/10 to-black/40 z-10"></div>
-                  
+
                   <div className="absolute top-4 left-4 z-20 flex items-center">
                     <span className="font-extrabold text-white text-lg sm:text-xl drop-shadow-md">
                       {translateProvinceName(dest.name, language)}
@@ -1694,11 +1559,10 @@ export const Home: React.FC = () => {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveFeaturedTab(tab.id)}
-                className={`px-4 py-2 text-xs font-extrabold rounded-full transition-all border ${
-                  activeFeaturedTab === tab.id
-                    ? 'bg-primary text-white border-primary shadow-sm'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                }`}
+                className={`px-4 py-2 text-xs font-extrabold rounded-full transition-all border ${activeFeaturedTab === tab.id
+                  ? 'bg-primary text-white border-primary shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
               >
                 {tab.id === 'all' ? (language === 'vi' ? 'Tất cả' : 'All') : translateProvinceName(tab.name, language)}
               </button>
@@ -1737,84 +1601,86 @@ export const Home: React.FC = () => {
             ) : featuredHotels.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 transition-all duration-300">
                 {featuredHotels.slice(featuredStartIndex, featuredStartIndex + 4).map((hotel) => (
-                <div
-                  key={hotel.id}
-                  onClick={() => navigate(`/hotel/${hotel.id}`)}
-                  className="bg-white border border-slate-100 rounded-premium overflow-hidden shadow-sm hover-lift cursor-pointer flex flex-col justify-between group relative"
-                >
-                  <div className="relative overflow-hidden">
-                    <img
-                      src={hotel.images[0]?.url || 'https://images.unsplash.com/photo-1566073771259-6a8506099945'}
-                      alt={hotel.name}
-                      className="w-full h-48 object-cover group-hover:scale-105 transition-all duration-300"
-                    />
-                    
-                    {/* Nút yêu thích Heart */}
-                    <button
-                      onClick={(e) => handleToggleFavorite(e, hotel.id)}
-                      className="absolute top-3 right-3 p-1.5 bg-white/80 backdrop-blur rounded-full hover:bg-white transition-colors shadow-md text-red-500 hover:scale-110 active:scale-90"
-                    >
-                      <Heart className={`w-4 h-4 ${hotel.isFavorite ? 'fill-red-500 text-red-500' : 'text-slate-400'}`} />
-                    </button>
-                  </div>
+                  <div
+                    key={hotel.id}
+                    onClick={() => navigate(`/hotel/${hotel.id}`)}
+                    className="bg-white border border-slate-100 rounded-premium overflow-hidden shadow-sm hover-lift cursor-pointer flex flex-col justify-between group relative"
+                  >
+                    <div className="relative overflow-hidden">
+                      <img
+                        src={hotel.images[0]?.url || 'https://images.unsplash.com/photo-1566073771259-6a8506099945'}
+                        alt={hotel.name}
+                        className="w-full h-48 object-cover group-hover:scale-105 transition-all duration-300"
+                      />
 
-                  <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
-                    <div className="space-y-1">
-                      <h3 className="font-bold text-slate-800 text-sm line-clamp-1 group-hover:text-primary transition-colors">{hotel.name}</h3>
-                      
-                      {/* Biểu tượng số sao dưới tên khách sạn */}
-                      <div className="flex items-center gap-0.5 pt-0.5">
-                        {Array.from({ length: hotel.starRating || 5 }).map((_, i) => (
-                          <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-1 text-xs text-slate-400 font-medium pt-1">
-                        <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                        <span className="line-clamp-1">{translateAddress(hotel.address, '', hotel.province, language)}</span>
-                      </div>
+                      {/* Nút yêu thích Heart */}
+                      <button
+                        onClick={(e) => handleToggleFavorite(e, hotel.id)}
+                        className="absolute top-3 right-3 p-1.5 bg-white/80 backdrop-blur rounded-full hover:bg-white transition-colors shadow-md text-red-500 hover:scale-110 active:scale-90"
+                      >
+                        <Heart className={`w-4 h-4 ${hotel.isFavorite ? 'fill-red-500 text-red-500' : 'text-slate-400'}`} />
+                      </button>
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-slate-50">
-                      <div className="flex justify-between items-center text-xs">
-                        {hotel.averageRating > 0 ? (
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="bg-[#003b95] text-white text-[11px] px-1.5 py-0.5 rounded-t rounded-br rounded-bl-none font-black min-w-[24px] text-center">
-                              {normalizeRating(hotel.averageRating).toFixed(1).replace('.', language === 'vi' ? ',' : '.')}
-                            </span>
-                            <span className="text-slate-700 font-extrabold text-[11px]">
-                              {getRatingText(hotel.averageRating, language)}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 font-semibold text-[11px]">{t.noReviews}</span>
-                        )}
-                        <span className="text-[10px] text-slate-400 font-bold">{translateCategoryName(hotel.category, language)}</span>
+                    <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-slate-800 text-sm line-clamp-1 group-hover:text-primary transition-colors">{hotel.name}</h3>
+
+                        {/* Biểu tượng số sao dưới tên khách sạn */}
+                        <div className="flex items-center gap-0.5 pt-0.5">
+                          {Array.from({ length: hotel.starRating || 5 }).map((_, i) => (
+                            <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0" />
+                          ))}
+                        </div>
+
+                        <div className="flex items-center gap-1 text-xs text-slate-400 font-medium pt-1">
+                          <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                          <span className="line-clamp-1">{translateAddress(hotel.address, '', hotel.province, language)}</span>
+                        </div>
                       </div>
 
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-400 font-medium">{t.priceFrom}</span>
-                        {hotel.originalPriceFrom && hotel.originalPriceFrom > hotel.priceFrom && (
-                          <span className="block text-[11px] text-slate-400 line-through leading-none mb-0.5">
-                            {formatPrice(hotel.originalPriceFrom, currency)}
+                      <div className="space-y-2 pt-2 border-t border-slate-50">
+                        <div className="flex justify-between items-center text-xs">
+                          {hotel.averageRating > 0 ? (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="bg-[#003b95] text-white text-[11px] px-1.5 py-0.5 rounded-t rounded-br rounded-bl-none font-black min-w-[24px] text-center">
+                                {normalizeRating(hotel.averageRating).toFixed(1).replace('.', language === 'vi' ? ',' : '.')}
+                              </span>
+                              <span className="text-slate-700 font-extrabold text-[11px]">
+                                {getRatingText(hotel.averageRating, language)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-semibold text-[11px]">{t.noReviews}</span>
+                          )}
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            {hotel.propertyType ? ({ HOTEL: 'Khách sạn', APARTMENT: 'Căn hộ', VILLA: 'Villa', RESORT: 'Resort', HOMESTAY: 'Homestay', GUESTHOUSE: 'Nhà nghỉ' } as Record<string, string>)[hotel.propertyType] || hotel.propertyType : ''}
                           </span>
-                        )}
-                        <p className="font-extrabold text-sm text-red-500">
-                          {hotel.priceFrom ? formatPrice(hotel.priceFrom, currency) : t.contact}
-                        </p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-400 font-medium">{t.priceFrom}</span>
+                          {hotel.originalPriceFrom && hotel.originalPriceFrom > hotel.priceFrom && (
+                            <span className="block text-[11px] text-slate-400 line-through leading-none mb-0.5">
+                              {formatPrice(hotel.originalPriceFrom, currency)}
+                            </span>
+                          )}
+                          <p className="font-extrabold text-sm text-red-500">
+                            {hotel.priceFrom ? formatPrice(hotel.priceFrom, currency) : t.contact}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 bg-slate-50 rounded-premium border border-dashed border-slate-200 w-full col-span-full">
-              <p className="text-sm font-bold text-slate-400">{t.noHotels}</p>
-            </div>
-          )}
-        </div>
-      </section>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-slate-50 rounded-premium border border-dashed border-slate-200 w-full col-span-full">
+                <p className="text-sm font-bold text-slate-400">{t.noHotels}</p>
+              </div>
+            )}
+          </div>
+        </section>
 
         {/* Chỗ nghỉ yêu thích dựa trên điểm đánh giá */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -1843,7 +1709,7 @@ export const Home: React.FC = () => {
                       alt={hotel.name}
                       className="w-full h-48 object-cover group-hover:scale-105 transition-all duration-300"
                     />
-                    
+
                     {/* Nút yêu thích Heart */}
                     <button
                       onClick={(e) => handleToggleFavorite(e, hotel.id)}
@@ -1856,7 +1722,7 @@ export const Home: React.FC = () => {
                   <div className="p-4 space-y-3 flex-1 flex flex-col justify-between text-left">
                     <div className="space-y-1">
                       <h3 className="font-bold text-slate-800 text-sm line-clamp-1 group-hover:text-primary transition-colors">{hotel.name}</h3>
-                      
+
                       {/* Biểu tượng số sao dưới tên khách sạn */}
                       <div className="flex items-center gap-0.5 pt-0.5">
                         {Array.from({ length: hotel.starRating || 5 }).map((_, i) => (
@@ -1884,7 +1750,9 @@ export const Home: React.FC = () => {
                         ) : (
                           <span className="text-slate-400 font-semibold text-[11px]">{t.noReviews}</span>
                         )}
-                        <span className="text-[10px] text-slate-400 font-bold">{translateCategoryName(hotel.category, language)}</span>
+                        <span className="text-[10px] text-slate-400 font-bold">
+                          {hotel.propertyType ? ({ HOTEL: 'Khách sạn', APARTMENT: 'Căn hộ', VILLA: 'Villa', RESORT: 'Resort', HOMESTAY: 'Homestay', GUESTHOUSE: 'Nhà nghỉ' } as Record<string, string>)[hotel.propertyType] || hotel.propertyType : ''}
+                        </span>
                       </div>
 
                       <div className="text-right">
@@ -1908,6 +1776,103 @@ export const Home: React.FC = () => {
               <p className="text-sm font-bold text-slate-400">{t.noHotelsRated}</p>
             </div>
           )}
+        </section>
+
+        {/* Vì sao lại chọn Cloud Booking */}
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 pt-4">
+          <div className="text-left space-y-1">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800">{t.whyChooseTitle}</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {/* Card 1: Đáp ứng mọi nhu cầu */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 flex flex-col justify-between text-left shadow-xs hover:shadow-md transition-all">
+              <div className="space-y-3">
+                {/* Luggage & Travel Illustration */}
+                <div className="shrink-0">
+                  <img
+                    src="/lido1.png"
+                    alt="Travel"
+                    className="w-24 h-24 object-contain"
+                  />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-base leading-snug">
+                  {t.whyItem1Title}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                  {language === 'vi' ? (
+                    <>Khám phá nhiều loại hình lưu trú với mức giá hợp lý, vị trí thuận tiện và dịch vụ chất lượng, giúp mỗi chuyến đi trở nên dễ dàng hơn.</>
+                  ) : (
+                    t.whyItem1Desc
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Card 2: Tùy chọn đặt chỗ linh hoạt */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 flex flex-col justify-between text-left shadow-xs hover:shadow-md transition-all">
+              <div className="space-y-3">
+                {/* Clipboard & Smile Illustration */}
+                <div className="shrink-0">
+                  <img
+                    src="/lido2.png"
+                    alt="Booking"
+                    className="w-24 h-24 object-contain"
+                  />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-base leading-snug">
+                  {t.whyItem2Title}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                  {language === 'vi' ? (
+                    <>Kế hoạch thay đổi bất ngờ? Đừng lo! <strong className="font-bold text-slate-900">Đổi lịch</strong> hoặc <strong className="font-bold text-slate-900">Hoàn tiền</strong> dễ dàng.</>
+                  ) : (
+                    t.whyItem2Desc
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Card 3: Thanh toán an toàn */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 flex flex-col justify-between text-left shadow-xs hover:shadow-md transition-all">
+              <div className="space-y-3">
+                {/* Shield & Security Illustration */}
+                <div className="shrink-0">
+                  <img
+                    src="/lido3.png"
+                    alt="Security"
+                    className="w-24 h-24 object-contain"
+                  />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-base leading-snug">
+                  {t.whyItem3Title}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                  {t.whyItem3Desc}
+                </p>
+              </div>
+            </div>
+
+            {/* Card 4: Dịch vụ khách hàng đáng tin cậy, hoạt động 24/7 */}
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-5 flex flex-col justify-between text-left shadow-xs hover:shadow-md transition-all">
+              <div className="space-y-3">
+                {/* Support 24/7 Illustration */}
+                <div className="shrink-0">
+                  <img
+                    src="/lido4.png"
+                    alt="CustomerSupport"
+                    className="w-24 h-24 object-contain"
+                  />
+                </div>
+                <h3 className="font-extrabold text-slate-900 text-base leading-snug">
+                  {t.whyItem4Title}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+                  {t.whyItem4Desc}
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>

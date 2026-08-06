@@ -176,6 +176,22 @@ export class HotelController {
     }
   }
 
+  public async updateRoomNumbersBulk(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const roomTypeId = req.params.id;
+      const ownerId = req.user!.userId;
+      const { roomNumbers } = req.body;
+      const result = await roomUseCase.updateRoomNumbersBulk(roomTypeId, ownerId, roomNumbers);
+      res.status(200).json({
+        success: true,
+        message: 'Cập nhật danh sách số phòng thành công',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // --- Lịch Giá Động (Price Calendar) ---
 
   public async getPriceCalendar(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -285,6 +301,86 @@ export class HotelController {
         success: true,
         message: 'Gửi đánh giá thành công',
         data: review,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public async replyReview(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user!.userId;
+      const userRole = req.user!.role;
+      const reviewId = req.params.id;
+      const { replyText } = req.body;
+
+      if (!replyText || typeof replyText !== 'string' || !replyText.trim()) {
+        res.status(400).json({ success: false, message: 'Nội dung phản hồi không được để trống.' });
+        return;
+      }
+
+      const review = await prisma.review.findUnique({
+        where: { id: reviewId },
+        include: { hotel: true },
+      });
+
+      if (!review) {
+        res.status(404).json({ success: false, message: 'Không tìm thấy đánh giá.' });
+        return;
+      }
+
+      if (userRole !== Role.ADMIN && review.hotel.ownerId !== userId) {
+        res.status(403).json({ success: false, message: 'Bạn không có quyền phản hồi đánh giá này.' });
+        return;
+      }
+
+      const updatedReview = await prisma.review.update({
+        where: { id: reviewId },
+        data: {
+          ownerReply: replyText.trim(),
+          ownerRepliedAt: new Date(),
+        },
+        include: {
+          user: {
+            select: {
+              fullName: true,
+              avatarUrl: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Gửi phản hồi đánh giá thành công',
+        data: updatedReview,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public async toggleLikeReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const reviewId = req.params.id;
+      const review = await prisma.review.findUnique({ where: { id: reviewId } });
+      if (!review) {
+        res.status(404).json({ success: false, message: 'Không tìm thấy đánh giá.' });
+        return;
+      }
+
+      const updated = await prisma.review.update({
+        where: { id: reviewId },
+        data: {
+          likesCount: { increment: 1 }
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Cảm ơn bạn đã thích đánh giá!',
+        data: { likesCount: updated.likesCount }
       });
     } catch (error) {
       next(error);

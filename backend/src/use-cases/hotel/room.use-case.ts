@@ -11,9 +11,9 @@ export class RoomUseCase {
     if (!hotel) throw new AppError('Không tìm thấy khách sạn', 404);
     if (hotel.ownerId !== ownerId) throw new AppError('Bạn không sở hữu khách sạn này', 403);
 
-    const { name, description, basePrice, capacity, bedCount, size, amenities, images, roomCount, includeBreakfast, childSurcharge, cancellationPolicy, paymentPolicy } = data;
+    const { name, description, basePrice, capacity, bedCount, bedType, size, amenities, images, roomCount, includeBreakfast, childSurcharge, cancellationPolicy, paymentPolicy } = data;
 
-    const roomType = await prisma.roomType.create({
+    const roomType = await (prisma.roomType as any).create({
       data: {
         hotelId,
         name,
@@ -21,6 +21,7 @@ export class RoomUseCase {
         basePrice,
         capacity,
         bedCount,
+        bedType: bedType || "Giường Đôi",
         size,
         amenities,
         includeBreakfast: !!includeBreakfast,
@@ -40,12 +41,12 @@ export class RoomUseCase {
       },
     });
 
-    // Tự động tạo các số phòng vật lý mẫu
+    // Tự động tạo các số phòng vật lý mẫu (101, 102...)
     if (roomCount && Number(roomCount) > 0) {
       const roomsData = Array.from({ length: Number(roomCount) }).map((_, i) => ({
         roomTypeId: roomType.id,
-        roomNumber: `Phòng ${i + 1}`,
-        isAvailable: true
+        roomNumber: `${101 + i}`,
+        isAvailable: true,
       }));
       await prisma.room.createMany({ data: roomsData });
     }
@@ -78,7 +79,7 @@ export class RoomUseCase {
     if (!roomType) throw new AppError('Không tìm thấy loại phòng', 404);
     if (roomType.hotel.ownerId !== ownerId) throw new AppError('Bạn không sở hữu khách sạn chứa loại phòng này', 403);
 
-    const { name, description, basePrice, capacity, bedCount, size, amenities, images, roomCount, includeBreakfast, childSurcharge, cancellationPolicy, paymentPolicy } = data;
+    const { name, description, basePrice, capacity, bedCount, bedType, size, amenities, images, roomCount, includeBreakfast, childSurcharge, cancellationPolicy, paymentPolicy } = data;
 
     if (images && Array.isArray(images)) {
       await prisma.roomImage.deleteMany({ where: { roomTypeId } });
@@ -114,7 +115,7 @@ export class RoomUseCase {
       }
     }
 
-    const updated = await prisma.roomType.update({
+    const updated = await (prisma.roomType as any).update({
       where: { id: roomTypeId },
       data: {
         name,
@@ -122,6 +123,7 @@ export class RoomUseCase {
         basePrice,
         capacity,
         bedCount,
+        bedType: bedType !== undefined ? bedType : undefined,
         size,
         amenities,
         includeBreakfast: includeBreakfast !== undefined ? !!includeBreakfast : undefined,
@@ -200,6 +202,55 @@ export class RoomUseCase {
 
     await prisma.room.delete({ where: { id: roomId } });
     return { success: true };
+  }
+
+  public async updateRoomNumbersBulk(roomTypeId: string, ownerId: string, roomNumbers: string[]) {
+    const roomType = await prisma.roomType.findUnique({
+      where: { id: roomTypeId },
+      include: { hotel: true },
+    });
+    if (!roomType) throw new AppError('Không tìm thấy loại phòng', 404);
+    if (roomType.hotel.ownerId !== ownerId) throw new AppError('Bạn không sở hữu khách sạn chứa loại phòng này', 403);
+
+    const cleanedNumbers = Array.from(
+      new Set(roomNumbers.map((num) => num.toString().trim()).filter(Boolean))
+    );
+
+    if (cleanedNumbers.length === 0) {
+      throw new AppError('Danh sách số phòng không được để trống', 400);
+    }
+
+    const existingRooms = await prisma.room.findMany({ where: { roomTypeId } });
+
+    // Xóa các phòng không còn trong danh sách mới
+    const toDeleteRooms = existingRooms.filter((r) => !cleanedNumbers.includes(r.roomNumber));
+    if (toDeleteRooms.length > 0) {
+      await prisma.room.deleteMany({
+        where: { id: { in: toDeleteRooms.map((r) => r.id) } },
+      });
+    }
+
+    // Tạo mới các phòng chưa tồn tại
+    const existingNumbers = existingRooms.map((r) => r.roomNumber);
+    const toCreateNumbers = cleanedNumbers.filter((num) => !existingNumbers.includes(num));
+
+    if (toCreateNumbers.length > 0) {
+      await prisma.room.createMany({
+        data: toCreateNumbers.map((num) => ({
+          roomTypeId,
+          roomNumber: num,
+          isAvailable: true,
+          housekeepingStatus: 'CLEAN',
+        })),
+      });
+    }
+
+    const updatedRooms = await prisma.room.findMany({
+      where: { roomTypeId },
+      orderBy: { roomNumber: 'asc' },
+    });
+
+    return updatedRooms;
   }
 }
 

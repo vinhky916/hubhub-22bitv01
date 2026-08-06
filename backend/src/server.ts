@@ -70,14 +70,23 @@ io.on('connection', (socket) => {
         }
       });
 
-      // Cập nhật Conversation
-      await prisma.conversation.update({
+      // Cập nhật Conversation & lấy ID người nhận
+      const conv = await prisma.conversation.update({
         where: { id: data.conversationId },
         data: { updatedAt: new Date() }
       });
 
-      // Broadcast tới tất cả mọi người trong phòng
+      // Broadcast tới tất cả mọi người trong phòng hội thoại
       io.to(data.conversationId).emit('receiveMessage', message);
+      io.to(data.conversationId).emit('newMessage', message);
+
+      // Đồng thời phát tin nhắn tới phòng cá nhân người nhận để họ nhận được ngay tức thì
+      if (conv) {
+        const recipientId = data.senderId === conv.customerId ? conv.hotelOwnerId : conv.customerId;
+        io.to(`user-${recipientId}`).emit('receiveMessage', message);
+        io.to(`user-${recipientId}`).emit('newMessage', message);
+        io.to(`user-${recipientId}`).emit('conversationUpdated', conv);
+      }
     } catch (err) {
       console.error('[Socket.io Error] Gửi tin nhắn thất bại:', err);
     }

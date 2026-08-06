@@ -219,6 +219,29 @@ export class CouponUseCase {
     await prisma.coupon.delete({ where: { id: couponId } });
     return { id: couponId };
   }
+
+  public async toggleCouponStatus(userId: string, userRole: Role, couponId: string) {
+    const coupon = await prisma.coupon.findUnique({ where: { id: couponId } });
+    if (!coupon) throw new AppError('Mã giảm giá không tồn tại', 404);
+
+    if (coupon.hotelId) {
+      const hotel = await prisma.hotel.findUnique({ where: { id: coupon.hotelId } });
+      if (userRole !== Role.ADMIN && (!hotel || hotel.ownerId !== userId)) {
+        throw new AppError('Bạn không có quyền chỉnh sửa coupon này', 403);
+      }
+    } else {
+      if (userRole !== Role.ADMIN) {
+        throw new AppError('Chỉ Admin mới có quyền chỉnh sửa mã giảm giá toàn sàn', 403);
+      }
+    }
+
+    const updated = await prisma.coupon.update({
+      where: { id: couponId },
+      data: { isActive: !coupon.isActive },
+    });
+
+    return updated;
+  }
 }
 
 export default new CouponUseCase();

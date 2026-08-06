@@ -16,6 +16,14 @@ export class UserUseCase {
         createdAt: true,
         gender: true,
         dateOfBirth: true,
+        staffHotelId: true,
+        staffHotel: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+          },
+        },
       },
     });
 

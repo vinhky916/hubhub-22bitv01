@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { setSearchCriteria } from '../store/slices/searchSlice';
+import { setSearchCriteria, getLocalDateString } from '../store/slices/searchSlice';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
+import { formatDateVN, formatFullDateVN } from '../utils/date';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';
 import {
   MapPin,
@@ -16,9 +17,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  X
+  X,
+  FileText,
+  CreditCard
 } from 'lucide-react';
 import { formatPrice } from '../utils/price';
+import { useModal } from '../components/common/ModalContext';
 
 const StarIcon = ({ size = 14 }: { size?: number }) => (
   <svg
@@ -238,28 +242,7 @@ const translateProvinceName = (name: string, lang: string) => {
   }
 };
 
-const translateCategoryName = (name: string, lang: string) => {
-  if (!name) return '';
-  if (lang === 'vi') return name;
-  switch (name.toLowerCase()) {
-    case 'khách sạn':
-    case 'hotel':
-      return 'Hotel';
-    case 'khu nghỉ dưỡng':
-    case 'resort':
-      return 'Resort';
-    case 'biệt thự / villa':
-    case 'villa':
-      return 'Villa';
-    case 'căn hộ':
-    case 'apartment':
-      return 'Apartment';
-    case 'homestay':
-      return 'Homestay';
-    default:
-      return name;
-  }
-};
+
 
 
 
@@ -292,6 +275,7 @@ interface HotelResult {
   averageRating: number;
   reviewCount: number;
   category: string;
+  propertyType?: string;
   images: { url: string }[];
   isFavorite: boolean;
   amenities?: { id: string; name: string }[];
@@ -303,6 +287,7 @@ export const Search: React.FC = () => {
   const criteria = useSelector((state: RootState) => state.search);
   const { language, currency } = useSelector((state: RootState) => state.settings);
   const t = searchTranslations[language];
+  const { showAlert } = useModal();
 
   const [hotels, setHotels] = useState<HotelResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -313,7 +298,7 @@ export const Search: React.FC = () => {
   const handleToggleFavorite = async (e: React.MouseEvent, hotelId: string) => {
     e.stopPropagation();
     if (!isAuthenticated) {
-      alert(t.loginAlert);
+      await showAlert(t.loginAlert, { type: 'warning' });
       navigate('/login');
       return;
     }
@@ -335,12 +320,18 @@ export const Search: React.FC = () => {
   const [priceMin, setPriceMin] = useState<number | ''>(criteria.priceMin || '');
   const [priceMax, setPriceMax] = useState<number | ''>(criteria.priceMax || '');
   const [starRating, setStarRating] = useState<number | ''>(criteria.starRating || '');
-  const [categoryId, setCategoryId] = useState(criteria.categoryId);
+  const [_categoryId, setCategoryId] = useState(criteria.categoryId);
+  const [selectedPropertyType, setSelectedPropertyType] = useState<string>(() => {
+    // Lấy propertyType từ URL query params nếu có
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get('propertyType') || '';
+  });
   const [amenityIds, setAmenityIds] = useState<string[]>(criteria.amenityIds);
 
   // States đồng bộ từ Home Search Bar
   const [destInputText, setDestInputText] = useState('');
   const [destError, setDestError] = useState(false);
+  const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
   const [checkIn, setCheckIn] = useState(criteria.checkInDate || '');
   const [checkOut, setCheckOut] = useState(criteria.checkOutDate || '');
   const [adults, setAdults] = useState(2);
@@ -350,7 +341,7 @@ export const Search: React.FC = () => {
   const [showDestPopover, setShowDestPopover] = useState(false);
   const [showDatePopover, setShowDatePopover] = useState(false);
   const [showGuestPopover, setShowGuestPopover] = useState(false);
-  const [dateTab, setDateTab] = useState<'calendar' | 'flexible'>('calendar');
+  const [_dateTab, _setDateTab] = useState<'calendar' | 'flexible'>('calendar');
 
   const [recentSearches, setRecentSearches] = useState<any[]>([]);
   const [suggestedHotels, setSuggestedHotels] = useState<any[]>([]);
@@ -399,8 +390,7 @@ export const Search: React.FC = () => {
   const month2 = month1 === 11 ? 0 : month1 + 1;
   const year2 = month1 === 11 ? year1 + 1 : year1;
 
-  const [flexMonthStartIndex, setFlexMonthStartIndex] = useState(0);
-  const [selectedFlexMonth, setSelectedFlexMonth] = useState<{ month: number; year: number } | null>(null);
+
 
   const [provincesList, setProvincesList] = useState<ProvinceItem[]>(VIETNAM_PROVINCES);
 
@@ -441,13 +431,7 @@ export const Search: React.FC = () => {
     fetchProvinces();
   }, []);
 
-  // Danh mục phân loại
-  const CATEGORIES = [
-    { id: 'hotel', name: 'Khách sạn' },
-    { id: 'resort', name: 'Khu nghỉ dưỡng' },
-    { id: 'villa', name: 'Biệt thự / Villa' },
-    { id: 'homestay', name: 'Homestay' }
-  ];
+
 
   // Danh sách tiện ích mặc định
   const [dbAmenities, setDbAmenities] = useState<{ id: string; name: string }[]>([]);
@@ -475,18 +459,19 @@ export const Search: React.FC = () => {
       setLoading(true);
       try {
         const params: any = {};
-        if (criteria.provinceId) params.provinceId = criteria.provinceId;
         if (criteria.categoryId) params.categoryId = criteria.categoryId;
+        if (selectedPropertyType && selectedPropertyType !== 'ALL') params.propertyType = selectedPropertyType;
         if (criteria.starRating) params.starRating = criteria.starRating;
         if (criteria.priceMin) params.priceMin = criteria.priceMin;
         if (criteria.priceMax) params.priceMax = criteria.priceMax;
         if (criteria.checkInDate) params.checkIn = criteria.checkInDate;
         if (criteria.checkOutDate) params.checkOut = criteria.checkOutDate;
 
-        if (criteria.searchQuery) {
-          const queryNorm = removeVietnameseTones(criteria.searchQuery.trim().toLowerCase());
+        if (criteria.searchQuery && criteria.searchQuery.trim()) {
+          const qTrim = criteria.searchQuery.trim();
+          const queryNorm = removeVietnameseTones(qTrim.toLowerCase());
           const matchedProv = provincesList.find(p =>
-            p.name.toLowerCase() === criteria.searchQuery.trim().toLowerCase() ||
+            p.name.toLowerCase() === qTrim.toLowerCase() ||
             removeVietnameseTones(p.name.toLowerCase()) === queryNorm ||
             p.keywords?.some(k => removeVietnameseTones(k.toLowerCase()) === queryNorm || queryNorm.includes(removeVietnameseTones(k.toLowerCase())))
           );
@@ -494,8 +479,10 @@ export const Search: React.FC = () => {
           if (matchedProv) {
             params.provinceId = matchedProv.id;
           } else {
-            params.searchQuery = criteria.searchQuery;
+            params.searchQuery = qTrim;
           }
+        } else if (criteria.provinceId) {
+          params.provinceId = criteria.provinceId;
         }
 
         // Gửi mảng tiện ích
@@ -516,7 +503,15 @@ export const Search: React.FC = () => {
     };
 
     fetchHotels();
-  }, [criteria]);
+  }, [criteria, selectedPropertyType, provincesList]);
+
+  const getProvinceName = (id: string) => {
+    if (!id) return '';
+    const prov = provincesList.find((p) => p.id === id);
+    if (prov) return prov.name;
+    const staticProv = VIETNAM_PROVINCES.find((p) => p.id === id);
+    return staticProv ? staticProv.name : '';
+  };
 
   // Đồng bộ hóa các bộ lọc cục bộ khi criteria từ Redux thay đổi
   useEffect(() => {
@@ -532,12 +527,14 @@ export const Search: React.FC = () => {
     if (criteria.searchQuery) {
       setDestInputText(criteria.searchQuery);
     } else if (criteria.provinceId) {
-      const prov = provincesList.find(p => p.id === criteria.provinceId);
-      setDestInputText(prov ? translateProvinceName(prov.name, language) : '');
+      const pName = getProvinceName(criteria.provinceId);
+      if (pName) {
+        setDestInputText(translateProvinceName(pName, language));
+      }
     } else {
       setDestInputText('');
     }
-  }, [criteria, language]);
+  }, [criteria, language, provincesList]);
 
   // Clear destination error when input has value
   useEffect(() => {
@@ -546,17 +543,15 @@ export const Search: React.FC = () => {
     }
   }, [destInputText]);
 
-  const getProvinceName = (id: string) => {
-    const prov = provincesList.find((p) => p.id === id);
-    return prov ? prov.name : '';
-  };
-
   // Synchronize destination input text on provinceId change or initial load
   useEffect(() => {
-    if (provinceId) {
-      setDestInputText(translateProvinceName(getProvinceName(provinceId), language));
+    if (provinceId && !selectedHotelId) {
+      const pName = getProvinceName(provinceId);
+      if (pName) {
+        setDestInputText(translateProvinceName(pName, language));
+      }
     }
-  }, [provinceId, language]);
+  }, [provinceId, language, provincesList, selectedHotelId]);
 
   // Load recent searches
   useEffect(() => {
@@ -661,8 +656,9 @@ export const Search: React.FC = () => {
     }
   };
 
+  const todayStr = getLocalDateString(new Date(), 0);
+
   const handleDayClick = (dateStr: string) => {
-    const todayStr = today.toISOString().split('T')[0];
     if (dateStr < todayStr) return;
 
     if (!checkIn || (checkIn && checkOut)) {
@@ -673,6 +669,7 @@ export const Search: React.FC = () => {
       if (dateStr >= checkIn) {
         setCheckOut(dateStr);
         setHoveredDate(null);
+        setShowDatePopover(false);
       } else {
         setCheckIn(dateStr);
         setHoveredDate(null);
@@ -688,19 +685,19 @@ export const Search: React.FC = () => {
 
   const formatDateDisplay = () => {
     if (checkIn && checkOut) {
-      const inDate = new Date(checkIn);
-      const outDate = new Date(checkOut);
+      const inDate = new Date(checkIn + 'T00:00:00');
+      const outDate = new Date(checkOut + 'T00:00:00');
       const daysOfWeek = language === 'vi'
-        ? ['CN', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
+        ? ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
         : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
       const inStr = language === 'vi'
-        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} thg ${inDate.getMonth() + 1}`
+        ? `${daysOfWeek[inDate.getDay()]}, ${inDate.getDate()} tháng ${inDate.getMonth() + 1}`
         : `${daysOfWeek[inDate.getDay()]}, ${inDate.toLocaleString('en-US', { month: 'short' })} ${inDate.getDate()}`;
       const outStr = language === 'vi'
-        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} thg ${outDate.getMonth() + 1}`
+        ? `${daysOfWeek[outDate.getDay()]}, ${outDate.getDate()} tháng ${outDate.getMonth() + 1}`
         : `${daysOfWeek[outDate.getDay()]}, ${outDate.toLocaleString('en-US', { month: 'short' })} ${outDate.getDate()}`;
-      return `${inStr} — ${outStr}`;
+      return `${inStr} – ${outStr}`;
     }
     return language === 'vi' ? 'Nhận phòng — Trả phòng' : 'Check-in — Check-out';
   };
@@ -715,47 +712,7 @@ export const Search: React.FC = () => {
     return false;
   };
 
-  const getFlexibleMonths = () => {
-    const list = [];
-    let m = today.getMonth();
-    let y = today.getFullYear();
-    for (let i = 0; i < 12; i++) {
-      list.push({
-        label: language === 'vi' ? `Th ${m + 1}\n${y}` : `${new Date(y, m).toLocaleString('en-US', { month: 'short' })}\n${y}`,
-        monthNum: m,
-        yearNum: y
-      });
-      m++;
-      if (m > 11) {
-        m = 0;
-        y++;
-      }
-    }
-    return list;
-  };
 
-  const flexibleMonths = getFlexibleMonths();
-
-  const handleFlexNext = () => {
-    if (flexMonthStartIndex < flexibleMonths.length - 5) {
-      setFlexMonthStartIndex(flexMonthStartIndex + 1);
-    }
-  };
-
-  const handleFlexPrev = () => {
-    if (flexMonthStartIndex > 0) {
-      setFlexMonthStartIndex(flexMonthStartIndex - 1);
-    }
-  };
-
-  const handleSelectFlexMonth = (m: { monthNum: number; yearNum: number }) => {
-    setSelectedFlexMonth({ month: m.monthNum, year: m.yearNum });
-    const startStr = `${m.yearNum}-${String(m.monthNum + 1).padStart(2, '0')}-01`;
-    const lastDay = new Date(m.yearNum, m.monthNum + 1, 0).getDate();
-    const endStr = `${m.yearNum}-${String(m.monthNum + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    setCheckIn(startStr);
-    setCheckOut(endStr);
-  };
 
   const monthNames = [
     'tháng 1', 'tháng 2', 'tháng 3', 'tháng 4', 'tháng 5', 'tháng 6',
@@ -764,9 +721,10 @@ export const Search: React.FC = () => {
 
   const formatSearchDatesHelper = (start: string, end: string) => {
     if (start && end) {
-      const sDate = new Date(start);
-      const eDate = new Date(end);
-      return `${sDate.getDate()} thg ${sDate.getMonth() + 1} – ${eDate.getDate()} thg ${eDate.getMonth() + 1}`;
+      const sDate = new Date(start.includes('T') ? start : start + 'T00:00:00');
+      const eDate = new Date(end.includes('T') ? end : end + 'T00:00:00');
+      const daysOfWeek = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+      return `${daysOfWeek[sDate.getDay()]}, ${sDate.getDate()} tháng ${sDate.getMonth() + 1} – ${daysOfWeek[eDate.getDay()]}, ${eDate.getDate()} tháng ${eDate.getMonth() + 1}`;
     }
     return 'Lịch linh hoạt';
   };
@@ -774,6 +732,7 @@ export const Search: React.FC = () => {
   const handleDestInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setDestInputText(val);
+    setSelectedHotelId(null);
     setShowDestPopover(true);
 
     const matched = provincesList.find((p) => p.name.toLowerCase() === val.toLowerCase());
@@ -785,6 +744,7 @@ export const Search: React.FC = () => {
   };
 
   const handleSelectRecentSearch = (searchItem: any) => {
+    setSelectedHotelId(null);
     setProvinceId(searchItem.provinceId);
     setDestInputText(searchItem.provinceName);
     setCheckIn(searchItem.checkIn || '');
@@ -800,6 +760,18 @@ export const Search: React.FC = () => {
 
     if (!destInputText.trim()) {
       setDestError(true);
+      return;
+    }
+
+    if (selectedHotelId) {
+      dispatch(setSearchCriteria({
+        provinceId: provinceId,
+        searchQuery: destInputText.trim(),
+        checkInDate: checkIn,
+        checkOutDate: checkOut,
+        guests: adults + children
+      }));
+      navigate(`/hotel/${selectedHotelId}`);
       return;
     }
 
@@ -847,14 +819,7 @@ export const Search: React.FC = () => {
     }));
   };
 
-  const handleCategoryCheck = (catId: string) => {
-    const updated = categoryId === catId ? '' : catId;
-    setCategoryId(updated);
-    dispatch(setSearchCriteria({
-      ...criteria,
-      categoryId: updated === '' ? '' : updated
-    }));
-  };
+
 
   const matchedProvinces = destInputText
     ? provincesList.filter((p) => {
@@ -895,15 +860,16 @@ export const Search: React.FC = () => {
   ];
   const displayedDeals = showAllStates.deals ? dealsItems : dealsItems.slice(0, 3);
 
-  // 3. Categories (types) list
-  const typeItems = [
-    ...CATEGORIES,
-    { id: 'ryokan', name: language === 'vi' ? 'Quán trọ Ryokan' : 'Ryokan' },
-    { id: 'apartment', name: language === 'vi' ? 'Căn hộ' : 'Apartment' },
-    { id: 'holiday_home', name: language === 'vi' ? 'Nhà nghỉ dưỡng' : 'Holiday home' },
-    { id: 'hostel', name: language === 'vi' ? 'Nhà trọ' : 'Hostel' },
+  // 3. PropertyType filter items — dùng enum thực tế
+  const PROPERTY_TYPES = [
+    { id: 'HOTEL', name: language === 'vi' ? 'Khách sạn' : 'Hotel' },
+    { id: 'APARTMENT', name: language === 'vi' ? 'Căn hộ' : 'Apartment' },
+    { id: 'VILLA', name: language === 'vi' ? 'Villa' : 'Villa' },
+    { id: 'RESORT', name: language === 'vi' ? 'Resort' : 'Resort' },
+    { id: 'HOMESTAY', name: language === 'vi' ? 'Homestay' : 'Homestay' },
+    { id: 'GUESTHOUSE', name: language === 'vi' ? 'Nhà nghỉ' : 'Guesthouse' },
   ];
-  const displayedTypes = showAllStates.types ? typeItems : typeItems.slice(0, 4);
+  const displayedTypes = showAllStates.types ? PROPERTY_TYPES : PROPERTY_TYPES.slice(0, 4);
 
   // 4. Amenities list
   const amenityItemsList = [
@@ -979,7 +945,7 @@ export const Search: React.FC = () => {
       // Internet & Parking
       if (lower.includes('wifi') || lower.includes('internet')) return 'Free Wifi';
       if (lower.includes('bãi đỗ xe') || lower.includes('chỗ đỗ xe') || lower.includes('bãi đậu xe') || lower.includes('parking')) return 'Parking Space';
-      
+
       // Leisure & Facilities
       if (lower === 'hồ bơi' || lower === 'swimming pool') return 'Swimming Pool';
       if (lower.includes('gym') || lower.includes('thể hình') || lower.includes('fitness')) return 'Fitness Center / Gym';
@@ -987,7 +953,7 @@ export const Search: React.FC = () => {
       if (lower.includes('nhà hàng') || lower.includes('dining') || lower.includes('restaurant')) return 'Restaurant & Dining';
       if (lower.includes('quầy bar') || lower.includes('lounge') || lower.includes('bar')) return 'Bar & Lounge';
       if (lower.includes('dịch vụ phòng') || lower.includes('room service')) return 'Room Service';
-      
+
       // Bathroom
       if (lower === 'giấy vệ sinh') return 'Toilet Paper';
       if (lower === 'khăn tắm') return 'Towels';
@@ -999,23 +965,23 @@ export const Search: React.FC = () => {
       if (lower === 'máy sấy tóc') return 'Hairdryer';
       if (lower === 'vòi sen' || lower === 'vòi hoa sen') return 'Shower';
       if (lower === 'bồn tắm') return 'Bathtub';
-      
+
       // Bedroom
       if (lower.includes('khăn trải giường') || lower.includes('ga trải giường')) return 'Bed Sheets / Linens';
       if (lower.includes('tủ quần áo') || lower.includes('phòng để quần áo')) return 'Wardrobe / Closet';
-      
+
       // Outdoors
       if (lower.includes('bàn ghế ngoài trời')) return 'Outdoor Furniture';
       if (lower.includes('sân thượng') || lower.includes('hiên')) return 'Terrace / Patio';
       if (lower === 'sân vườn' || lower === 'vườn') return 'Garden';
       if (lower === 'ban công') return 'Balcony';
-      
+
       // Kitchen
       if (lower.includes('bếp chung')) return 'Shared Kitchen';
       if (lower.includes('ấm đun nước')) return 'Electric Kettle';
       if (lower.includes('lò vi sóng')) return 'Microwave';
       if (lower === 'tủ lạnh' || lower === 'fridge' || lower === 'refrigerator') return 'Refrigerator';
-      
+
       // Room details
       if (lower.includes('giá treo')) return 'Clothes Rack';
       if (lower.includes('két sắt') || lower.includes('két an toàn') || lower.includes('két sắt an toàn')) return 'Safety Deposit Box';
@@ -1024,27 +990,27 @@ export const Search: React.FC = () => {
       if (lower === 'tivi' || lower === 'tv') return 'TV';
       if (lower.includes('tv màn hình phẳng') || lower.includes('tivi màn hình phẳng')) return 'Flat-screen TV';
       if (lower.includes('truyền hình cáp')) return 'Cable Channels';
-      
+
       // Services
       if (lower.includes('dọn phòng hàng ngày')) return 'Daily Housekeeping';
       if (lower.includes('sảnh chung')) return 'Shared Lounge / TV Area';
       if (lower.includes('lễ tân 24 giờ') || lower.includes('lễ tân')) return '24-hour Front Desk';
       if (lower.includes('trông trẻ')) return 'Babysitting Services';
       if (lower.includes('nhận/trả phòng riêng')) return 'Private Check-in / Check-out';
-      
+
       // Security
       if (lower.includes('bình chữa cháy')) return 'Fire Extinguisher';
       if (lower.includes('cctv bên ngoài')) return 'CCTV Outside Property';
       if (lower.includes('cctv trong khu vực chung')) return 'CCTV in Common Areas';
       if (lower.includes('báo cháy') || lower.includes('báo động')) return 'Smoke Alarms';
       if (lower.includes('bảo vệ 24/7')) return '24/7 Security';
-      
+
       // General
       if (lower.includes('thang máy')) return 'Elevator';
       if (lower.includes('phòng gia đình')) return 'Family Rooms';
       if (lower.includes('không hút thuốc')) return 'Non-smoking Rooms';
       if (lower.includes('cấm hút thuốc')) return 'All-inclusive Non-smoking';
-      
+
       // Languages
       if (lower.includes('tiếng anh')) return 'English';
       if (lower.includes('tiếng việt')) return 'Vietnamese';
@@ -1119,7 +1085,7 @@ export const Search: React.FC = () => {
             className="bg-[#febb02] p-[4px] rounded-lg flex flex-col lg:flex-row gap-[4px] shadow-[0_10px_25px_rgba(0,0,0,0.1)] w-full items-stretch"
           >
             {/* Destination Panel - Interactive text input */}
-            <div className={`flex-grow lg:flex-[2.4] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
+            <div className={`flex-grow lg:flex-[3.0] bg-white px-4 h-[62px] flex items-center gap-3 rounded-t-md lg:rounded-l-md lg:rounded-tr-none relative border-2 ${destError ? 'border-red-500' : 'border-transparent'}`}>
               <Building2 className={`w-6 h-6 shrink-0 ${destError ? 'text-red-500 animate-bounce' : 'text-slate-400'}`} />
               <input
                 type="text"
@@ -1260,7 +1226,7 @@ export const Search: React.FC = () => {
             </div>
 
             {/* Dates Panel & Custom popover calendar grid */}
-            <div className="flex-grow lg:flex-[2.0] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+            <div className="flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative">
               <CalendarIcon className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
@@ -1278,234 +1244,129 @@ export const Search: React.FC = () => {
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setShowDatePopover(false)} />
                   <div className="absolute top-full left-1/2 transform -translate-x-1/2 lg:translate-x-0 lg:left-0 mt-2 w-[90vw] sm:w-[760px] bg-white rounded-lg shadow-2xl border border-slate-150 p-5 z-40 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="space-y-4">
-                      {/* Tabs */}
-                      <div className="flex pb-1">
+                    <div className="space-y-4 text-left">
+                      {/* Calendar Header */}
+                      <div className="flex justify-between items-center px-1">
                         <button
                           type="button"
-                          onClick={() => setDateTab('calendar')}
-                          className={`flex-1 pb-2 text-sm font-bold border-b-2 transition-colors ${dateTab === 'calendar' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'
-                            }`}
+                          onClick={handlePrevMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-650 shrink-0"
                         >
-                          {language === 'vi' ? 'Lịch' : 'Calendar'}
+                          <ChevronLeft className="w-5 h-5" />
                         </button>
+
+                        <div className="flex-1 grid grid-cols-2 gap-12 text-center">
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month1]} {year1}
+                          </h4>
+                          <h4 className="font-extrabold text-base text-slate-900 capitalize">
+                            {monthNames[month2]} {year2}
+                          </h4>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() => setDateTab('flexible')}
-                          className={`flex-1 pb-2 text-sm font-bold border-b-2 transition-colors ${dateTab === 'flexible' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'
-                            }`}
+                          onClick={handleNextMonths}
+                          className="p-1 rounded-full hover:bg-slate-100 text-slate-655 shrink-0"
                         >
-                          {language === 'vi' ? 'Ngày linh hoạt' : 'Flexible dates'}
+                          <ChevronRight className="w-5 h-5" />
                         </button>
                       </div>
 
-                      {dateTab === 'calendar' ? (
-                        <div className="space-y-4 text-left pt-2">
-                          {/* Calendar Header */}
-                          <div className="flex justify-between items-center px-1">
-                            <button
-                              type="button"
-                              onClick={handlePrevMonths}
-                              className="p-1 rounded-full hover:bg-slate-100 text-slate-650 shrink-0"
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                            </button>
-
-                            <div className="flex-1 grid grid-cols-2 gap-12 text-center">
-                              <h4 className="font-extrabold text-base text-slate-900 capitalize">
-                                {monthNames[month1]} {year1}
-                              </h4>
-                              <h4 className="font-extrabold text-base text-slate-900 capitalize">
-                                {monthNames[month2]} {year2}
-                              </h4>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={handleNextMonths}
-                              className="p-1 rounded-full hover:bg-slate-100 text-slate-655 shrink-0"
-                            >
-                              <ChevronRight className="w-5 h-5" />
-                            </button>
+                      {/* Two months calendar layout side-by-side */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 pt-2">
+                        {/* Month 1 */}
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year1, month1).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
-                          {/* Two months calendar layout side-by-side */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 pt-2">
-                            {/* Month 1 */}
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
-                                <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-                              </div>
-                              <div className="grid grid-cols-7 gap-1.5 text-center">
-                                {getDaysInMonth(year1, month1).map((day, idx) => {
-                                  if (!day) return <div key={idx} className="h-10 w-10" />;
-                                  const dateStr = day.toISOString().split('T')[0];
-                                  const dayNum = day.getDate();
-                                  const active = isSelected(dateStr);
-                                  const range = isInRange(dateStr);
-                                  const hoverRange = isInHoverRange(dateStr);
-                                  const isPast = dateStr < today.toISOString().split('T')[0];
-                                  const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
-
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      disabled={isPast}
-                                      onClick={() => handleDayClick(dateStr)}
-                                      onMouseEnter={() => handleDayMouseEnter(dateStr)}
-                                      onMouseLeave={() => setHoveredDate(null)}
-                                      className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all ${active
-                                          ? 'bg-blue-600 text-white font-bold'
-                                          : range || hoverRange
-                                            ? 'bg-blue-50 text-blue-700'
-                                            : isHoverEnd
-                                              ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
-                                              : isPast
-                                                ? 'text-slate-350 cursor-not-allowed'
-                                                : 'text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                    >
-                                      {dayNum}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            {/* Month 2 */}
-                            <div className="space-y-3">
-                              <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
-                                <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
-                              </div>
-                              <div className="grid grid-cols-7 gap-1.5 text-center">
-                                {getDaysInMonth(year2, month2).map((day, idx) => {
-                                  if (!day) return <div key={idx} className="h-10 w-10" />;
-                                  const dateStr = day.toISOString().split('T')[0];
-                                  const dayNum = day.getDate();
-                                  const active = isSelected(dateStr);
-                                  const range = isInRange(dateStr);
-                                  const hoverRange = isInHoverRange(dateStr);
-                                  const isPast = dateStr < today.toISOString().split('T')[0];
-                                  const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
-
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      disabled={isPast}
-                                      onClick={() => handleDayClick(dateStr)}
-                                      onMouseEnter={() => handleDayMouseEnter(dateStr)}
-                                      onMouseLeave={() => setHoveredDate(null)}
-                                      className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all ${active
-                                          ? 'bg-blue-600 text-white font-bold'
-                                          : range || hoverRange
-                                            ? 'bg-blue-50 text-blue-700'
-                                            : isHoverEnd
-                                              ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
-                                              : isPast
-                                                ? 'text-slate-350 cursor-not-allowed'
-                                                : 'text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                    >
-                                      {dayNum}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Done button */}
-                          <div className="flex justify-end pt-4 border-t border-slate-100">
-                            <button
-                              type="button"
-                              onClick={() => setShowDatePopover(false)}
-                              className="bg-[#006ce4] hover:bg-[#0056b3] text-white font-bold text-sm px-8 py-2.5 rounded-lg transition-colors"
-                            >
-                              {t.done}
-                            </button>
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  disabled={isPast}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
+                                          : isPast
+                                            ? 'bg-slate-100/90 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
+                                >
+                                  {dayNum}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      ) : (
-                        <div className="space-y-8 text-left pt-2">
-                          {/* Flexible done */}
-                          <div>
-                            <p className="font-extrabold text-base text-slate-800 mb-3">
-                              {language === 'vi' ? 'Bạn muốn ở bao lâu?' : 'How long do you want to stay?'}
-                            </p>
-                            <div className="flex gap-6">
-                              {(language === 'vi' ? ["Cuối tuần", "1 tuần", "Một tháng", "Khác"] : ["Weekend", "1 week", "One month", "Other"]).map((dur, i) => (
-                                <label key={i} className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
-                                  <input type="radio" name="flexible-dur" defaultChecked={i === 1} className="w-4 h-4 text-blue-600 cursor-pointer" />
-                                  <span>{dur}</span>
-                                </label>
-                              ))}
-                            </div>
+
+                        {/* Month 2 */}
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-7 gap-1.5 text-center text-sm font-bold text-slate-900">
+                            <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
                           </div>
+                          <div className="grid grid-cols-7 gap-1.5 text-center">
+                            {getDaysInMonth(year2, month2).map((day, idx) => {
+                              if (!day) return <div key={idx} className="h-10 w-10" />;
+                              const dateStr = getLocalDateString(day);
+                              const dayNum = day.getDate();
+                              const active = isSelected(dateStr);
+                              const range = isInRange(dateStr);
+                              const hoverRange = isInHoverRange(dateStr);
+                              const isToday = dateStr === todayStr;
+                              const isPast = dateStr < todayStr;
+                              const isHoverEnd = checkIn && !checkOut && hoveredDate === dateStr;
 
-                          <div className="space-y-3">
-                            <p className="font-extrabold text-base text-slate-800">
-                              {language === 'vi' ? 'Bạn muốn đi khi nào?' : 'When do you want to go?'}
-                            </p>
-                            <div className="relative px-8">
-                              {flexMonthStartIndex > 0 && (
+                              return (
                                 <button
+                                  key={idx}
                                   type="button"
-                                  onClick={handleFlexPrev}
-                                  className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white border border-slate-200 rounded-full p-1.5 shadow-md z-10 hover:bg-slate-50 transition-all"
+                                  disabled={isPast}
+                                  onClick={() => handleDayClick(dateStr)}
+                                  onMouseEnter={() => handleDayMouseEnter(dateStr)}
+                                  onMouseLeave={() => setHoveredDate(null)}
+                                  className={`h-10 w-10 text-base font-extrabold rounded-lg flex items-center justify-center transition-all relative ${active
+                                    ? 'bg-blue-600 text-white font-bold'
+                                    : range || hoverRange
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : isHoverEnd
+                                        ? 'bg-blue-100 border border-dashed border-blue-400 text-blue-800'
+                                        : isToday
+                                          ? 'bg-blue-50/80 text-blue-700 border-2 border-blue-600 font-black shadow-xs'
+                                          : isPast
+                                            ? 'bg-slate-100/90 text-slate-350 cursor-not-allowed opacity-60 select-none'
+                                            : 'text-slate-700 hover:bg-slate-100'
+                                    }`}
                                 >
-                                  <ChevronLeft className="w-4 h-4 text-slate-655" />
+                                  {dayNum}
                                 </button>
-                              )}
-
-                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                                {flexibleMonths.slice(flexMonthStartIndex, flexMonthStartIndex + 5).map((m) => {
-                                  const active = selectedFlexMonth?.month === m.monthNum && selectedFlexMonth?.year === m.yearNum;
-                                  return (
-                                    <div
-                                      key={m.label}
-                                      onClick={() => handleSelectFlexMonth(m)}
-                                      className={`border rounded-lg h-32 flex flex-col items-center justify-center p-3 text-center cursor-pointer transition-all ${active
-                                          ? 'border-blue-600 bg-blue-50/20 shadow-sm ring-1 ring-blue-500/20'
-                                          : 'border-slate-200 hover:border-blue-600 hover:bg-slate-50'
-                                        }`}
-                                    >
-                                      <CalendarIcon className={`w-5 h-5 mx-auto mb-3 ${active ? 'text-blue-600' : 'text-slate-400'}`} />
-                                      <span className="text-sm font-extrabold text-slate-800 leading-tight block">
-                                        {m.label.split('\n')[0]}
-                                      </span>
-                                      <span className="text-[10px] font-bold text-slate-550 block mt-0.5">
-                                        {m.label.split('\n')[1]}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {flexMonthStartIndex < flexibleMonths.length - 5 && (
-                                <button
-                                  type="button"
-                                  onClick={handleFlexNext}
-                                  className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white border border-slate-200 rounded-full p-1.5 shadow-md z-10 hover:bg-slate-50 transition-all"
-                                >
-                                  <ChevronRight className="w-4 h-4 text-slate-655" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex justify-end pt-4 border-t border-slate-100">
-                            <button
-                              type="button"
-                              onClick={() => setShowDatePopover(false)}
-                              className="bg-[#006ce4] hover:bg-[#0056b3] text-white font-bold text-sm px-8 py-2.5 rounded-lg transition-colors"
-                            >
-                              {t.done}
-                            </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      )}
+                      </div>
+
+
                     </div>
                   </div>
                 </>
@@ -1513,7 +1374,7 @@ export const Search: React.FC = () => {
             </div>
 
             {/* Guests Panel */}
-            <div className="flex-grow lg:flex-[2.6] bg-white px-4 h-[62px] flex items-center gap-3 relative">
+            <div className="flex-grow lg:flex-[2.2] bg-white px-4 h-[62px] flex items-center gap-3 relative">
               <Users className="w-6 h-6 text-slate-400 shrink-0" />
               <div
                 onClick={() => {
@@ -1904,15 +1765,18 @@ export const Search: React.FC = () => {
               </div>
               {openSections.types && (
                 <div className="space-y-2.5 pt-1 animate-in fade-in duration-200">
-                  {displayedTypes.map((cat) => (
-                    <label key={cat.id} className="flex items-center gap-3 text-xs font-semibold text-slate-700 cursor-pointer hover:text-slate-900 transition-colors">
+                  {displayedTypes.map((pt) => (
+                    <label key={pt.id} className="flex items-center gap-3 text-xs font-semibold text-slate-700 cursor-pointer hover:text-slate-900 transition-colors">
                       <input
                         type="checkbox"
-                        checked={categoryId === cat.id}
-                        onChange={() => handleCategoryCheck(cat.id)}
+                        checked={selectedPropertyType === pt.id}
+                        onChange={() => {
+                          const updated = selectedPropertyType === pt.id ? '' : pt.id;
+                          setSelectedPropertyType(updated);
+                        }}
                         className="rounded border-slate-300 text-primary focus:ring-primary w-4 h-4 cursor-pointer"
                       />
-                      <span>{translateCategoryName(cat.name, language)}</span>
+                      <span>{pt.name}</span>
                     </label>
                   ))}
                   <button
@@ -1971,8 +1835,8 @@ export const Search: React.FC = () => {
               {openSections.flex && (
                 <div className="space-y-2.5 pt-1 animate-in fade-in duration-200">
                   {[
-                    { id: 'flex1', label: filterLabels[language].flex1, icon: '📋' },
-                    { id: 'flex2', label: filterLabels[language].flex2, icon: '💳' }
+                    { id: 'flex1', label: filterLabels[language].flex1, icon: <FileText className="w-4 h-4 text-blue-600 shrink-0" /> },
+                    { id: 'flex2', label: filterLabels[language].flex2, icon: <CreditCard className="w-4 h-4 text-emerald-600 shrink-0" /> }
                   ].map((item) => (
                     <label key={item.id} className="flex items-center gap-3 text-xs font-semibold text-slate-700 cursor-pointer hover:text-slate-900 transition-colors">
                       <input
@@ -2163,12 +2027,16 @@ export const Search: React.FC = () => {
                             {hotel.name}
                           </h3>
 
-                          {/* Category & Stars */}
+                          {/* Category & PropertyType badge + Stars */}
                           <div className="flex items-center gap-2 flex-wrap !mt-5">
-                            <span className="inline-flex items-center gap-1 text-xs font-extrabold bg-[#ebf3ff] text-[#006ce4] px-2 py-0.5 rounded">
-                              <Building2 className="w-3 h-3" />
-                              {translateCategoryName(hotel.category, language)}
-                            </span>
+                            {hotel.propertyType && (
+                              <span className="inline-flex items-center text-xs font-extrabold bg-purple-50 text-purple-600 px-2 py-0.5 rounded">
+                                {language === 'vi'
+                                  ? { HOTEL: 'Khách sạn', APARTMENT: 'Căn hộ', VILLA: 'Villa', RESORT: 'Resort', HOMESTAY: 'Homestay', GUESTHOUSE: 'Nhà nghỉ' }[hotel.propertyType] || hotel.propertyType
+                                  : hotel.propertyType.charAt(0) + hotel.propertyType.slice(1).toLowerCase()
+                                }
+                              </span>
+                            )}
                             <div className="flex items-center gap-0.5">
                               {Array.from({ length: hotel.starRating || 0 }).map((_, i) => (
                                 <StarIcon key={i} size={12} />

@@ -6,6 +6,7 @@ import loyaltyUseCase from '../user/loyalty.use-case';
 import socketService from '../../infrastructure/services/socket.service';
 import auditService from '../../infrastructure/services/audit.service';
 import PaymentService from '../../infrastructure/services/payment.service';
+import mailService from '../../infrastructure/services/mail.service';
 
 const paymentService = new PaymentService();
 
@@ -551,6 +552,21 @@ export class BookingUseCase {
 
     // Phát tín hiệu Socket.io thời gian thực
     socketService.emitBookingStatusUpdate(bookingId, status);
+
+    // Gửi email thông báo cập nhật trạng thái đơn phòng cho khách hàng
+    if (booking.guestEmail) {
+      mailService.sendBookingStatusUpdateEmail({
+        email: booking.guestEmail,
+        guestName: booking.guestName,
+        bookingId: booking.id,
+        hotelName: booking.bookingItems[0]?.roomType.hotel.name || 'Khách sạn',
+        roomTypeName: booking.bookingItems[0]?.roomType.name || 'Phòng nghỉ',
+        status,
+        checkInDate: booking.checkInDate,
+        checkOutDate: booking.checkOutDate,
+        finalPrice: Number(booking.finalPrice)
+      }).catch(err => console.error('[BookingUseCase] Status update email send error:', err));
+    }
 
     return updated;
   }

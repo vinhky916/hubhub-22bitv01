@@ -29,15 +29,24 @@ export const LoginSuccess: React.FC = () => {
         });
 
         if (res.data.success) {
+          const user = res.data.data;
           // Lưu vào Redux Store
           dispatch(
             setAuth({
-              user: res.data.data,
+              user: user,
               accessToken: accessToken,
             })
           );
-          // Điều hướng về trang chủ
-          navigate('/', { replace: true });
+          
+          let targetPath = '/';
+          if (user?.role === 'ADMIN') {
+            targetPath = '/admin-dashboard';
+          } else if (user?.role === 'HOTEL_OWNER') {
+            targetPath = '/owner-dashboard';
+          }
+
+          // Điều hướng về trang dashboard hoặc trang chủ
+          navigate(targetPath, { replace: true });
         } else {
           navigate('/login?error=failed_fetch_profile', { replace: true });
         }

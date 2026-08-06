@@ -5,6 +5,7 @@ import store from './store';
 import { setAuth, clearAuth } from './store/slices/authSlice';
 import apiClient, { getAccessToken } from './core/api/client';
 import Layout from './components/common/Layout';
+import { ModalProvider } from './components/common/ModalContext';
 import { socket } from './core/socket/socket';
 import Home from './pages/Home';
 import Search from './pages/Search';
@@ -17,6 +18,7 @@ import Payment from './pages/Payment';
 import MyBookings from './pages/MyBookings';
 import OwnerDashboard from './pages/OwnerDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import StaffDashboard from './pages/StaffDashboard';
 import Wishlist from './pages/Wishlist';
 import BecomePartner from './pages/BecomePartner';
 import LoginSuccess from './pages/LoginSuccess';
@@ -110,29 +112,32 @@ const ScrollToTop: React.FC = () => {
 const AppContent: React.FC = () => {
   return (
     <Router>
-      <ScrollToTop />
-      <AuthInitializer>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/hotel/:id" element={<HotelDetail />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/login-success" element={<LoginSuccess />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/register/owner" element={<RegisterOwner />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/my-bookings" element={<MyBookings />} />
-            <Route path="/wishlist" element={<Wishlist />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route path="/payment" element={<Payment />} />
-            <Route path="/become-partner" element={<BecomePartner />} />
-            <Route path="/owner-dashboard" element={<OwnerDashboard />} />
-            <Route path="/admin-dashboard" element={<AdminDashboard />} />
-            <Route path="*" element={<div className="text-center py-20 font-bold text-slate-500">404 - Không tìm thấy trang</div>} />
-          </Routes>
-        </Layout>
-      </AuthInitializer>
+      <ModalProvider>
+        <ScrollToTop />
+        <AuthInitializer>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/hotel/:id" element={<HotelDetail />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/login-success" element={<LoginSuccess />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/register/owner" element={<RegisterOwner />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/my-bookings" element={<MyBookings />} />
+              <Route path="/wishlist" element={<Wishlist />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route path="/payment" element={<Payment />} />
+              <Route path="/become-partner" element={<BecomePartner />} />
+              <Route path="/owner-dashboard" element={<OwnerDashboard />} />
+              <Route path="/admin-dashboard" element={<AdminDashboard />} />
+              <Route path="/staff-dashboard" element={<StaffDashboard />} />
+              <Route path="*" element={<div className="text-center py-20 font-bold text-slate-500">404 - Không tìm thấy trang</div>} />
+            </Routes>
+          </Layout>
+        </AuthInitializer>
+      </ModalProvider>
     </Router>
   );
 };
