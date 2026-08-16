@@ -6,7 +6,7 @@ import type { RootState } from '../store';
 import apiClient from '../core/api/client';
 import { MapPin, Building2, Heart, Calendar, Users, ChevronDown, Clock, ChevronLeft, ChevronRight, X, Star } from 'lucide-react';
 import { formatPrice } from '../utils/price';
-import { formatDateVN, formatFullDateVN } from '../utils/date';
+import { formatDateVN } from '../utils/date';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';
 import { useModal } from '../components/common/ModalContext';
 
@@ -365,17 +365,42 @@ export const Home: React.FC = () => {
 
   const [adminCoupons, setAdminCoupons] = useState<any[]>([]);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [cmsBanners, setCmsBanners] = useState<any[]>([]);
+  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
 
   useEffect(() => {
     apiClient.get('/coupons')
       .then(res => {
         if (res.data.success && Array.isArray(res.data.data)) {
-          // Chỉ lấy mã giảm giá toàn sàn do Admin tạo (c.hotelId === null hoặc undefined)
           setAdminCoupons(res.data.data.filter((c: any) => !c.hotelId));
         }
       })
       .catch(err => console.error('Failed to fetch admin coupons:', err));
+
+    apiClient.get('/cms/banners', { params: { activeOnly: 'true' } })
+      .then(res => {
+        if (res.data.success && Array.isArray(res.data.data)) {
+          setCmsBanners(res.data.data);
+        }
+      })
+      .catch(err => console.error('Failed to fetch CMS banners:', err));
   }, []);
+
+  // Tự động xoay vòng banner sau mỗi 5 giây
+  useEffect(() => {
+    if (cmsBanners.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveBannerIndex((prev) => (prev + 1) % cmsBanners.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [cmsBanners]);
+
+  // Chỉ banner có vị trí HOME_HERO mới được thay đổi ảnh nền Hero của trang chủ
+  const heroBanners = cmsBanners.filter(b => b.position === 'HOME_HERO');
+  const currentHeroBanner = heroBanners.length > 0
+    ? heroBanners[activeBannerIndex % heroBanners.length]
+    : null;
+  const heroBgUrl = currentHeroBanner?.imageUrl || '/banner.webp';
 
   const handleCopyAdminCoupon = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -854,10 +879,10 @@ export const Home: React.FC = () => {
     <div>
       {/* Banner & Search bar section wrapper */}
       <div className="relative">
-        {/* Hero Section */}
+        {/* Hero Section - Nền chuyển đổi động theo Banner từ Admin */}
         <section
-          style={{ backgroundImage: "url('/banner.webp')" }}
-          className="relative bg-cover bg-center text-white pt-40 pb-28 px-4 sm:px-6 lg:px-8 shadow-2xl overflow-hidden min-h-[450px] flex items-center justify-center"
+          style={{ backgroundImage: `url('${heroBgUrl}')` }}
+          className="relative bg-cover bg-center text-white pt-40 pb-28 px-4 sm:px-6 lg:px-8 shadow-2xl overflow-hidden min-h-[450px] flex items-center justify-center transition-all duration-700"
         >
           {/* Lớp phủ tối nhẹ sắc nét bảo vệ độ tương phản chữ */}
           <div className="absolute inset-0 bg-black/35 z-0"></div>
@@ -1290,8 +1315,102 @@ export const Home: React.FC = () => {
       </div>
 
       {/* Main body content sections with spacing */}
-      <div className="space-y-16 mt-16">
-        {/* Admin Global Coupons & Promotions Section */}
+      <div className="space-y-12 mt-12">
+        {/* 1. Khối Banner Quảng Cáo CMS dạng Slider Traveloka (Nằm ngay trên Mã Giảm Giá) */}
+        {cmsBanners.length > 0 && (
+          <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="relative group/banner rounded-2xl sm:rounded-3xl overflow-hidden shadow-lg border border-slate-200/80 bg-slate-900">
+              {/* Banner Active Slide */}
+              <div
+                onClick={() => {
+                  const currentBanner = cmsBanners[activeBannerIndex % cmsBanners.length];
+                  if (currentBanner?.linkUrl) {
+                    if (currentBanner.linkUrl.startsWith('http')) {
+                      window.open(currentBanner.linkUrl, '_blank');
+                    } else {
+                      navigate(currentBanner.linkUrl);
+                    }
+                  } else {
+                    navigate('/search');
+                  }
+                }}
+                className="relative w-full h-44 sm:h-60 md:h-64 lg:h-72 cursor-pointer overflow-hidden"
+              >
+                <img
+                  key={cmsBanners[activeBannerIndex % cmsBanners.length]?.id || activeBannerIndex}
+                  src={cmsBanners[activeBannerIndex % cmsBanners.length]?.imageUrl}
+                  alt={cmsBanners[activeBannerIndex % cmsBanners.length]?.title || 'Banner'}
+                  className="w-full h-full object-cover transition-transform duration-700 hover:scale-105 animate-in fade-in duration-300"
+                />
+
+                {/* Banner Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-5 sm:p-8 text-left">
+                  {cmsBanners[activeBannerIndex % cmsBanners.length]?.title && (
+                    <div className="space-y-2 max-w-2xl">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-amber-500/90 backdrop-blur-md text-white rounded-full inline-block shadow-sm">
+                        {cmsBanners[activeBannerIndex % cmsBanners.length]?.position === 'HOME_HERO' ? 'HERO BANNER' : 'ƯU ĐÃI ĐẶC BIỆT'}
+                      </span>
+                      <h3 className="text-lg sm:text-2xl lg:text-3xl font-black text-white leading-tight drop-shadow-md">
+                        {cmsBanners[activeBannerIndex % cmsBanners.length]?.title}
+                      </h3>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Prev Button Arrow */}
+              {cmsBanners.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveBannerIndex((prev) => (prev - 1 + cmsBanners.length) % cmsBanners.length);
+                  }}
+                  className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/90 hover:bg-white text-slate-800 shadow-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 border border-slate-100"
+                >
+                  <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-slate-800" />
+                </button>
+              )}
+
+              {/* Next Button Arrow */}
+              {cmsBanners.length > 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveBannerIndex((prev) => (prev + 1) % cmsBanners.length);
+                  }}
+                  className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-white/90 hover:bg-white text-slate-800 shadow-xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 border border-slate-100"
+                >
+                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-slate-800" />
+                </button>
+              )}
+
+              {/* Dot indicators */}
+              {cmsBanners.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10">
+                  {cmsBanners.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveBannerIndex(idx);
+                      }}
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        activeBannerIndex % cmsBanners.length === idx
+                          ? 'w-6 bg-white'
+                          : 'w-2 bg-white/50 hover:bg-white/80'
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* 2. Admin Global Coupons & Promotions Section */}
         {adminCoupons.length > 0 && (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="bg-gradient-to-br from-indigo-900 via-blue-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
@@ -1478,8 +1597,6 @@ export const Home: React.FC = () => {
             </div>
           </div>
         </section>
-
-
 
         {/* Điểm đến đang thịnh hành */}
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">

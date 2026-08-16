@@ -367,13 +367,6 @@ export const Payment: React.FC = () => {
     }
   };
 
-  // PayPal Standard Checkout Flow states
-  const [paypalModalOpen, setPaypalModalOpen] = useState(false);
-  const [paypalStep, setPaypalStep] = useState<'CREATE' | 'AUTHENTICATE' | 'APPROVE' | 'CAPTURING' | 'SUCCESS'>('CREATE');
-  const [paypalOrderData, setPaypalOrderData] = useState<{ orderId: string; amountUsd: number; approveUrl?: string } | null>(null);
-  const [paypalBuyerEmail, setPaypalBuyerEmail] = useState('sb-customer@business.example.com');
-  const [paypalBuyerPass, setPaypalBuyerPass] = useState('SandboxPass123');
-
   const handleStartPayPalCheckout = async () => {
     if (!bookingId) {
       await showAlert(language === 'vi' ? 'Không tìm thấy mã đơn đặt phòng để thanh toán.' : 'Booking ID missing.', { type: 'error' });
@@ -398,32 +391,6 @@ export const Payment: React.FC = () => {
       setPaypalRedirecting(false);
       const errMsg = err.response?.data?.message || err.message || (language === 'vi' ? 'Lỗi kết nối PayPal Sandbox.' : 'PayPal connection error.');
       await showAlert(errMsg, { type: 'error' });
-    }
-  };
-
-  const handlePayPalOnApproveAndCapture = async () => {
-    if (!paypalOrderData) return;
-    setPaypalStep('CAPTURING');
-    try {
-      // 3. CAPTURE ORDER (Gọi API backend /payment/paypal/capture-order với orderId)
-      const confirmRes = await apiClient.post('/payment/paypal/capture-order', {
-        bookingId,
-        orderId: paypalOrderData.orderId
-      });
-
-      if (confirmRes.data.success) {
-        setPaypalStep('SUCCESS');
-        setTimeout(() => {
-          setPaypalModalOpen(false);
-          navigate(`/my-bookings?payment=success&bookingId=${bookingId}&method=paypal`);
-        }, 1200);
-      } else {
-        setPaypalStep('AUTHENTICATE');
-        await showAlert(language === 'vi' ? 'Không thể thực hiện Capture giao dịch trên PayPal.' : 'PayPal Capture failed.', { type: 'error' });
-      }
-    } catch (err: any) {
-      setPaypalStep('AUTHENTICATE');
-      await showAlert(err.response?.data?.message || 'Lỗi Capture giao dịch PayPal', { type: 'error' });
     }
   };
 
@@ -1478,126 +1445,6 @@ export const Payment: React.FC = () => {
               <p className="text-xs text-slate-500 font-bold leading-normal">{submitMessage}</p>
             </div>
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden relative">
-              <div className="h-full bg-primary rounded-full absolute inset-y-0 left-0 animate-progress w-2/3"></div>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* PAYPAL STANDARD CHECKOUT MODAL WINDOW (Official 4-Step Integration Flow) */}
-      {paypalModalOpen && paypalOrderData && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Modal Top Bar - PayPal Branding */}
-            <div className="bg-[#003087] text-white px-6 py-4 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <span className="font-black italic text-lg tracking-tight">PayPal</span>
-                <span className="bg-amber-400 text-slate-950 font-black text-[9px] px-2 py-0.5 rounded uppercase tracking-wider">
-                  Sandbox Checkout
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setPaypalModalOpen(false); setPaypalRedirecting(false); }}
-                className="text-white/80 hover:text-white font-bold text-lg p-1 rounded-lg transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Modal Steps Flow Header */}
-            <div className="bg-slate-50 border-b border-slate-200/80 px-6 py-3 flex justify-between items-center text-[10px] font-bold text-slate-600">
-              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'CREATE' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
-                1. Create Order
-              </span>
-              <span>➔</span>
-              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'AUTHENTICATE' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
-                2. Authenticate
-              </span>
-              <span>➔</span>
-              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'CAPTURING' ? 'bg-blue-600 text-white' : 'bg-slate-200'}`}>
-                3. Capture
-              </span>
-              <span>➔</span>
-              <span className={`px-2 py-0.5 rounded-full ${paypalStep === 'SUCCESS' ? 'bg-emerald-600 text-white' : 'bg-slate-200'}`}>
-                4. Success
-              </span>
-            </div>
-
-            {/* Modal Content Body */}
-            <div className="p-6 space-y-4 text-slate-800">
-              {/* Order Info Summary */}
-              <div className="bg-blue-50/70 p-3.5 rounded-2xl border border-blue-100 space-y-1">
-                <div className="flex justify-between items-center text-xs font-bold">
-                  <span className="text-slate-500">Mã PayPal Order ID:</span>
-                  <span className="font-mono text-[#003087] font-extrabold">{paypalOrderData.orderId}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm font-black pt-1 border-t border-blue-200/50">
-                  <span className="text-slate-700">Tổng thanh toán USD:</span>
-                  <span className="text-[#003087] font-black text-base">${paypalOrderData.amountUsd.toFixed(2)} USD</span>
-                </div>
-              </div>
-
-              {paypalStep === 'CREATE' && (
-                <div className="py-8 text-center space-y-3">
-                  <div className="animate-spin inline-block w-8 h-8 border-3 border-[#003087] border-t-transparent rounded-full" />
-                  <p className="text-xs font-bold text-slate-600">Đang khởi tạo Order trên hệ thống PayPal REST API...</p>
-                </div>
-              )}
-
-              {paypalStep === 'AUTHENTICATE' && (
-                <div className="space-y-3 pt-1">
-                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl text-[11px] font-semibold text-amber-900">
-                    🔒 <strong>PayPal Sandbox Login:</strong> Đăng nhập tài khoản Buyer thử nghiệm bên dưới để phê duyệt giao dịch (OnApprove).
-                  </div>
-
-                  <div className="space-y-2 text-xs font-semibold">
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Email người mua (Buyer Email)</label>
-                      <input
-                        type="text"
-                        value={paypalBuyerEmail}
-                        onChange={(e) => setPaypalBuyerEmail(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 outline-none font-bold text-slate-800 focus:border-[#003087]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Mật khẩu Sandbox (Password)</label>
-                      <input
-                        type="password"
-                        value={paypalBuyerPass}
-                        onChange={(e) => setPaypalBuyerPass(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 outline-none font-bold text-slate-800 focus:border-[#003087]"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handlePayPalOnApproveAndCapture}
-                    className="w-full bg-[#FFC439] hover:bg-[#F2B827] text-[#003087] font-black text-sm py-3.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 mt-4 active:scale-98 cursor-pointer"
-                  >
-                    <span className="italic font-black text-base">PayPal</span>
-                    <span>Phê duyệt & Capture (${paypalOrderData.amountUsd.toFixed(2)} USD)</span>
-                  </button>
-                </div>
-              )}
-
-              {paypalStep === 'CAPTURING' && (
-                <div className="py-8 text-center space-y-3">
-                  <div className="animate-spin inline-block w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full" />
-                  <p className="text-xs font-black text-emerald-700">Đang thực hiện Capture Transaction trên PayPal API Sandbox...</p>
-                </div>
-              )}
-
-              {paypalStep === 'SUCCESS' && (
-                <div className="py-6 text-center space-y-3 animate-in zoom-in-95 duration-200">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl font-black">
-                    ✓
-                  </div>
-                  <h4 className="font-extrabold text-base text-slate-900">Giao Dịch PayPal Thành Công!</h4>
-                  <p className="text-xs text-slate-500 font-semibold">Đang tạo vé điện tử & gửi mã QR Code về email khách hàng...</p>
-                </div>
-              )}
             </div>
           </div>
         </div>

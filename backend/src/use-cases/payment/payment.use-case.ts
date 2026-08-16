@@ -3,7 +3,7 @@ import prisma from '../../config/database';
 import { PaymentService } from '../../infrastructure/services/payment.service';
 import mailService, { MailService } from '../../infrastructure/services/mail.service';
 import socketService from '../../infrastructure/services/socket.service';
-import loyaltyUseCase from '../user/loyalty.use-case';
+import { loyaltyUseCase } from '../../config/container';
 
 export class PaymentUseCase {
   constructor(

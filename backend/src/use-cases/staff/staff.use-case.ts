@@ -1,43 +1,32 @@
-import prisma from '../../config/database';
+// Use-case: StaffUseCase (Clean Architecture — không import prisma)
 import * as bcrypt from 'bcrypt';
-import { Role, BookingStatus, RoomHousekeepingStatus } from '@prisma/client';
+import { IStaffRepository } from '../../domain/repositories/staff.repository';
 import { AppError } from '../../infrastructure/middlewares/error.middleware';
 
 export class StaffUseCase {
-  // Helper: Xác định hotelId được phép thao tác của user (STAFF, HOTEL_OWNER, ADMIN)
+  constructor(private staffRepo: IStaffRepository) {}
+
   private async resolveHotelId(userId: string, userRole: string, requestedHotelId?: string): Promise<string> {
-    if (userRole === Role.STAFF) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { staffHotelId: true },
-      });
-      if (!user || !user.staffHotelId) {
-        throw new AppError('Tài khoản nhân viên chưa được gán vào khách sạn nào', 403);
-      }
+    if (userRole === 'STAFF') {
+      const user = await this.staffRepo.findUserById(userId, { staffHotel: true });
+      if (!user || !user.staffHotelId) throw new AppError('Tài khoản nhân viên chưa được gán vào khách sạn nào', 403);
       return user.staffHotelId;
     }
 
-    if (userRole === Role.HOTEL_OWNER) {
-      const ownerHotels = await prisma.hotel.findMany({
-        where: { ownerId: userId },
-        select: { id: true },
-      });
-      if (ownerHotels.length === 0) {
-        throw new AppError('Bạn chưa đăng ký khách sạn nào', 400);
-      }
+    if (userRole === 'HOTEL_OWNER') {
+      const ownerHotels = await this.staffRepo.findHotelsByOwner(userId);
+      if (ownerHotels.length === 0) throw new AppError('Bạn chưa đăng ký khách sạn nào', 400);
       if (requestedHotelId) {
-        const isOwned = ownerHotels.some((h) => h.id === requestedHotelId);
-        if (!isOwned) {
-          throw new AppError('Bạn không có quyền truy cập thông tin khách sạn này', 403);
-        }
+        const isOwned = ownerHotels.some((h: any) => h.id === requestedHotelId);
+        if (!isOwned) throw new AppError('Bạn không có quyền truy cập thông tin khách sạn này', 403);
         return requestedHotelId;
       }
       return ownerHotels[0].id;
     }
 
-    if (userRole === Role.ADMIN) {
+    if (userRole === 'ADMIN') {
       if (requestedHotelId) return requestedHotelId;
-      const firstHotel = await prisma.hotel.findFirst({ select: { id: true } });
+      const firstHotel = await this.staffRepo.findFirstHotel();
       if (!firstHotel) throw new AppError('Chưa có khách sạn nào trong hệ thống', 404);
       return firstHotel.id;
     }
@@ -45,382 +34,183 @@ export class StaffUseCase {
     throw new AppError('Quyền truy cập không hợp lệ', 403);
   }
 
-  // ==========================================
-  // 1. DÀNH CHO HOTEL OWNER: QUẢN LÝ TÀI KHOẢN STAFF
-  // ==========================================
-
   public async createStaffAccount(ownerId: string, ownerRole: string, data: any) {
     const { fullName, email, password, phoneNumber, hotelId } = data;
+    if (!fullName || !email || !password || !hotelId) throw new AppError('Vui lòng điền đầy đủ các thông tin bắt buộc', 400);
 
-    if (!fullName || !email || !password || !hotelId) {
-      throw new AppError('Vui lòng điền đầy đủ các thông tin bắt buộc (họ tên, email, mật khẩu, khách sạn)', 400);
+    if (ownerRole !== 'ADMIN') {
+      const hotel = await this.staffRepo.findHotelById(hotelId) as any;
+      if (!hotel || hotel.ownerId !== ownerId) throw new AppError('Bạn không phải chủ sở hữu của khách sạn này', 403);
     }
 
-    // Kiểm tra owner sở hữu hotelId
-    if (ownerRole !== Role.ADMIN) {
-      const hotel = await prisma.hotel.findFirst({
-        where: { id: hotelId, ownerId },
-      });
-      if (!hotel) {
-        throw new AppError('Bạn không phải chủ sở hữu của khách sạn này', 403);
-      }
-    }
+    const existingUser = await this.staffRepo.findUserByEmail(email);
+    if (existingUser) throw new AppError('Email này đã được đăng ký sử dụng trong hệ thống', 400);
 
-    // Kiểm tra email tồn tại
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      throw new AppError('Email này đã được đăng ký sử dụng trong hệ thống', 400);
-    }
-
-    // Kiểm tra phone nếu có
     if (phoneNumber && phoneNumber.trim() !== '') {
-      const existingPhone = await prisma.user.findFirst({
-        where: { phoneNumber: phoneNumber.trim() },
-      });
-      if (existingPhone) {
-        throw new AppError('Số điện thoại này đã được sử dụng', 400);
-      }
+      const existingPhone = await this.staffRepo.findUserByPhone(phoneNumber.trim());
+      if (existingPhone) throw new AppError('Số điện thoại này đã được sử dụng', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    const staffUser = await prisma.user.create({
+    return this.staffRepo.createStaffUser({
       data: {
-        email,
-        password: hashedPassword,
-        fullName,
-        phoneNumber: phoneNumber || null,
-        role: Role.STAFF,
-        staffHotelId: hotelId,
-        isVerified: true,
-        isApproved: true,
+        email, password: hashedPassword, fullName, phoneNumber: phoneNumber || null,
+        role: 'STAFF', staffHotelId: hotelId, isVerified: true, isApproved: true,
       },
       select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phoneNumber: true,
-        role: true,
-        isApproved: true,
-        createdAt: true,
-        staffHotel: {
-          select: { id: true, name: true },
-        },
+        id: true, fullName: true, email: true, phoneNumber: true, role: true,
+        isApproved: true, createdAt: true, staffHotel: { select: { id: true, name: true } },
       },
     });
-
-    return staffUser;
   }
 
   public async getHotelStaffList(ownerId: string, ownerRole: string, hotelId?: string) {
     let hotelIds: string[] = [];
-
-    if (ownerRole === Role.ADMIN) {
+    if (ownerRole === 'ADMIN') {
       if (hotelId) hotelIds = [hotelId];
       else {
-        const allHotels = await prisma.hotel.findMany({ select: { id: true } });
-        hotelIds = allHotels.map((h) => h.id);
+        const allHotels = await this.staffRepo.findHotelsByOwner('__ALL__');
+        hotelIds = (allHotels as any[]).map(h => h.id);
       }
     } else {
-      const ownerHotels = await prisma.hotel.findMany({
-        where: { ownerId },
-        select: { id: true },
-      });
-      hotelIds = ownerHotels.map((h) => h.id);
-      if (hotelId && !hotelIds.includes(hotelId)) {
-        throw new AppError('Bạn không có quyền quản lý nhân viên của khách sạn này', 403);
-      }
+      const ownerHotels = await this.staffRepo.findHotelsByOwner(ownerId);
+      hotelIds = (ownerHotels as any[]).map(h => h.id);
+      if (hotelId && !hotelIds.includes(hotelId)) throw new AppError('Bạn không có quyền quản lý nhân viên của khách sạn này', 403);
       if (hotelId) hotelIds = [hotelId];
     }
-
-    const staffList = await prisma.user.findMany({
-      where: {
-        role: Role.STAFF,
-        staffHotelId: { in: hotelIds },
-      },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phoneNumber: true,
-        avatarUrl: true,
-        isApproved: true,
-        createdAt: true,
-        staffHotel: {
-          select: { id: true, name: true, address: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return staffList;
+    return this.staffRepo.findStaffList(hotelIds);
   }
 
   public async updateStaffAccount(ownerId: string, ownerRole: string, staffId: string, data: any) {
     const { fullName, phoneNumber, isApproved, staffHotelId, password } = data;
+    const staffUser = await this.staffRepo.findUserById(staffId, { staffHotel: true }) as any;
+    if (!staffUser || staffUser.role !== 'STAFF') throw new AppError('Không tìm thấy tài khoản nhân viên', 404);
 
-    const staffUser = await prisma.user.findUnique({
-      where: { id: staffId },
-      include: { staffHotel: true },
+    if (ownerRole !== 'ADMIN' && staffUser.staffHotelId) {
+      const hotel = await this.staffRepo.findHotelById(staffUser.staffHotelId) as any;
+      if (!hotel || hotel.ownerId !== ownerId) throw new AppError('Bạn không có quyền quản lý nhân viên này', 403);
+    }
+
+    let hashedPassword: string | undefined;
+    if (password && password.trim() !== '') hashedPassword = await bcrypt.hash(password, 10);
+
+    return this.staffRepo.updateUser(staffId, {
+      fullName: fullName || undefined, phoneNumber: phoneNumber !== undefined ? phoneNumber : undefined,
+      isApproved: isApproved !== undefined ? isApproved : undefined,
+      staffHotelId: staffHotelId || undefined, password: hashedPassword,
     });
-
-    if (!staffUser || staffUser.role !== Role.STAFF) {
-      throw new AppError('Không tìm thấy tài khoản nhân viên', 404);
-    }
-
-    // Check ownership
-    if (ownerRole !== Role.ADMIN && staffUser.staffHotelId) {
-      const hotel = await prisma.hotel.findFirst({
-        where: { id: staffUser.staffHotelId, ownerId },
-      });
-      if (!hotel) {
-        throw new AppError('Bạn không có quyền quản lý nhân viên này', 403);
-      }
-    }
-
-    let hashedPassword = undefined;
-    if (password && password.trim() !== '') {
-      hashedPassword = await bcrypt.hash(password, 10);
-    }
-
-    const updated = await prisma.user.update({
-      where: { id: staffId },
-      data: {
-        fullName: fullName || undefined,
-        phoneNumber: phoneNumber !== undefined ? phoneNumber : undefined,
-        isApproved: isApproved !== undefined ? isApproved : undefined,
-        staffHotelId: staffHotelId || undefined,
-        password: hashedPassword,
-      },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phoneNumber: true,
-        isApproved: true,
-        staffHotel: {
-          select: { id: true, name: true },
-        },
-      },
-    });
-
-    return updated;
   }
 
   public async deleteStaffAccount(ownerId: string, ownerRole: string, staffId: string) {
-    const staffUser = await prisma.user.findUnique({
-      where: { id: staffId },
-    });
+    const staffUser = await this.staffRepo.findUserById(staffId) as any;
+    if (!staffUser || staffUser.role !== 'STAFF') throw new AppError('Không tìm thấy tài khoản nhân viên', 404);
 
-    if (!staffUser || staffUser.role !== Role.STAFF) {
-      throw new AppError('Không tìm thấy tài khoản nhân viên', 404);
+    if (ownerRole !== 'ADMIN' && staffUser.staffHotelId) {
+      const hotel = await this.staffRepo.findHotelById(staffUser.staffHotelId) as any;
+      if (!hotel || hotel.ownerId !== ownerId) throw new AppError('Bạn không có quyền xóa nhân viên này', 403);
     }
 
-    if (ownerRole !== Role.ADMIN && staffUser.staffHotelId) {
-      const hotel = await prisma.hotel.findFirst({
-        where: { id: staffUser.staffHotelId, ownerId },
-      });
-      if (!hotel) {
-        throw new AppError('Bạn không có quyền xóa nhân viên này', 403);
-      }
-    }
-
-    await prisma.user.delete({ where: { id: staffId } });
+    await this.staffRepo.deleteUser(staffId);
     return { success: true, message: 'Đã xóa tài khoản nhân viên thành công' };
   }
 
-  // ==========================================
-  // 2. DÀNH CHO STAFF: WORKSPACE VẬN HÀNH (FRONT DESK & HOUSEKEEPING)
-  // ==========================================
-
   public async getStaffDashboardOverview(userId: string, role: string, requestedHotelId?: string) {
     const hotelId = await this.resolveHotelId(userId, role, requestedHotelId);
-
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-    // 1. Lấy thông tin khách sạn
-    const hotelInfo = await prisma.hotel.findUnique({
-      where: { id: hotelId },
-      select: { id: true, name: true, address: true, starRating: true },
-    });
-
-    // 2. Arrivals hôm nay (Bookings đến hôm nay & chưa check-in)
-    const arrivalsTodayCount = await prisma.booking.count({
-      where: {
+    const [hotelInfo, arrivalsTodayCount, departuresTodayCount, inHouseCount, rooms] = await Promise.all([
+      this.staffRepo.findHotelById(hotelId),
+      this.staffRepo.countBookings({
         bookingItems: { some: { roomType: { hotelId } } },
         checkInDate: { gte: startOfToday, lte: endOfToday },
-        status: { in: [BookingStatus.CONFIRMED, BookingStatus.PENDING, BookingStatus.PAYMENT_PROCESSING] },
-      },
-    });
-
-    // 3. Departures hôm nay (Bookings đi hôm nay & đang ở)
-    const departuresTodayCount = await prisma.booking.count({
-      where: {
+        status: { in: ['CONFIRMED', 'PENDING', 'PAYMENT_PROCESSING'] },
+      }),
+      this.staffRepo.countBookings({
         bookingItems: { some: { roomType: { hotelId } } },
         checkOutDate: { gte: startOfToday, lte: endOfToday },
-        status: BookingStatus.CHECKED_IN,
-      },
-    });
+        status: 'CHECKED_IN',
+      }),
+      this.staffRepo.countBookings({ bookingItems: { some: { roomType: { hotelId } } }, status: 'CHECKED_IN' }),
+      this.staffRepo.findRooms({ roomType: { hotelId } }, { housekeepingStatus: true }),
+    ]);
 
-    // 4. In-House guests (Khách đang ở)
-    const inHouseCount = await prisma.booking.count({
-      where: {
-        bookingItems: { some: { roomType: { hotelId } } },
-        status: BookingStatus.CHECKED_IN,
-      },
-    });
-
-    // 5. Thống kê Buồng phòng (Rooms)
-    const rooms = await prisma.room.findMany({
-      where: { roomType: { hotelId } },
-      select: { housekeepingStatus: true },
-    });
-
+    const roomsArr = rooms as any[];
     const roomStats = {
-      total: rooms.length,
-      clean: rooms.filter((r) => r.housekeepingStatus === RoomHousekeepingStatus.CLEAN).length,
-      dirty: rooms.filter((r) => r.housekeepingStatus === RoomHousekeepingStatus.DIRTY).length,
-      inUse: rooms.filter((r) => r.housekeepingStatus === RoomHousekeepingStatus.IN_USE).length,
-      maintenance: rooms.filter((r) => r.housekeepingStatus === RoomHousekeepingStatus.MAINTENANCE).length,
+      total: roomsArr.length,
+      clean: roomsArr.filter(r => r.housekeepingStatus === 'CLEAN').length,
+      dirty: roomsArr.filter(r => r.housekeepingStatus === 'DIRTY').length,
+      inUse: roomsArr.filter(r => r.housekeepingStatus === 'IN_USE').length,
+      maintenance: roomsArr.filter(r => r.housekeepingStatus === 'MAINTENANCE').length,
     };
 
-    return {
-      hotelInfo,
-      stats: {
-        arrivalsToday: arrivalsTodayCount,
-        departuresToday: departuresTodayCount,
-        inHouse: inHouseCount,
-        roomStats,
-      },
-    };
+    return { hotelInfo, stats: { arrivalsToday: arrivalsTodayCount, departuresToday: departuresTodayCount, inHouse: inHouseCount, roomStats } };
   }
 
   public async getStaffBookings(userId: string, role: string, filters: any) {
     const { requestedHotelId, query, filterType, page = 1, limit = 20 } = filters;
     const hotelId = await this.resolveHotelId(userId, role, requestedHotelId);
-
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-    const whereCondition: any = {
-      bookingItems: { some: { roomType: { hotelId } } },
-    };
-
-    // Filter theo loại danh sách
+    const whereCondition: any = { bookingItems: { some: { roomType: { hotelId } } } };
     if (filterType === 'ARRIVALS') {
       whereCondition.checkInDate = { gte: startOfToday, lte: endOfToday };
-      whereCondition.status = { in: [BookingStatus.CONFIRMED, BookingStatus.PENDING] };
+      whereCondition.status = { in: ['CONFIRMED', 'PENDING'] };
     } else if (filterType === 'DEPARTURES') {
       whereCondition.checkOutDate = { gte: startOfToday, lte: endOfToday };
-      whereCondition.status = BookingStatus.CHECKED_IN;
+      whereCondition.status = 'CHECKED_IN';
     } else if (filterType === 'IN_HOUSE') {
-      whereCondition.status = BookingStatus.CHECKED_IN;
+      whereCondition.status = 'CHECKED_IN';
     }
 
-    // Search query
     if (query && query.trim() !== '') {
       const q = query.trim();
       whereCondition.OR = [
-        { id: { contains: q, mode: 'insensitive' } },
-        { guestName: { contains: q, mode: 'insensitive' } },
-        { guestEmail: { contains: q, mode: 'insensitive' } },
-        { guestPhone: { contains: q, mode: 'insensitive' } },
+        { id: { contains: q, mode: 'insensitive' } }, { guestName: { contains: q, mode: 'insensitive' } },
+        { guestEmail: { contains: q, mode: 'insensitive' } }, { guestPhone: { contains: q, mode: 'insensitive' } },
       ];
     }
 
     const skip = (Number(page) - 1) * Number(limit);
-
     const [bookings, total] = await Promise.all([
-      prisma.booking.findMany({
-        where: whereCondition,
-        include: {
-          bookingItems: {
-            include: {
-              roomType: { select: { id: true, name: true } },
-            },
-          },
-          payment: { select: { status: true, method: true, amount: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: Number(limit),
-      }),
-      prisma.booking.count({ where: whereCondition }),
+      this.staffRepo.findBookings(whereCondition, {
+        bookingItems: { include: { roomType: { select: { id: true, name: true } } } },
+        payment: { select: { status: true, method: true, amount: true } },
+      }, skip, Number(limit)),
+      this.staffRepo.countBookings(whereCondition),
     ]);
 
-    return {
-      bookings,
-      pagination: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / Number(limit)),
-      },
-    };
+    return { bookings, pagination: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) } };
   }
 
   public async updateBookingStatusByStaff(userId: string, role: string, bookingId: string, data: any) {
     const { status, internalNotes } = data;
-    const booking = await prisma.booking.findUnique({
-      where: { id: bookingId },
-      include: {
-        bookingItems: {
-          include: {
-            roomType: { select: { hotelId: true } },
-          },
-        },
-      },
-    });
-
+    const booking = await this.staffRepo.findBookingById(bookingId, {
+      bookingItems: { include: { roomType: { select: { hotelId: true } } } },
+    }) as any;
     if (!booking) throw new AppError('Không tìm thấy đơn đặt phòng', 404);
 
     const bookingHotelId = booking.bookingItems[0]?.roomType.hotelId;
     const hotelId = await this.resolveHotelId(userId, role, bookingHotelId);
+    if (bookingHotelId !== hotelId) throw new AppError('Đơn đặt phòng này không thuộc khách sạn của bạn', 403);
 
-    if (bookingHotelId !== hotelId) {
-      throw new AppError('Đơn đặt phòng này không thuộc khách sạn của bạn', 403);
-    }
-
-    const updatedBooking = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        status: status as BookingStatus,
-        internalNotes: internalNotes !== undefined ? internalNotes : undefined,
-      },
-      include: {
-        bookingItems: {
-          include: { roomType: { select: { id: true, name: true } } },
-        },
-        payment: true,
-      },
+    const updatedBooking = await this.staffRepo.updateBooking(bookingId, {
+      status, internalNotes: internalNotes !== undefined ? internalNotes : undefined,
     });
 
-    // Tự động cập nhật phòng thực tế nếu có số phòng được gán
     for (const item of booking.bookingItems) {
       if (item.roomNumbers) {
-        const numbers = item.roomNumbers.split(',').map((n) => n.trim());
-        const roomsToUpdate = await prisma.room.findMany({
-          where: {
-            roomTypeId: item.roomTypeId,
-            roomNumber: { in: numbers },
-          },
-        });
+        const numbers = item.roomNumbers.split(',').map((n: string) => n.trim());
+        const roomsToUpdate = await this.staffRepo.findRooms({ roomTypeId: item.roomTypeId, roomNumber: { in: numbers } });
+        let targetStatus: string | null = null;
+        if (status === 'CHECKED_IN') targetStatus = 'IN_USE';
+        else if (status === 'CHECKED_OUT' || status === 'COMPLETED') targetStatus = 'DIRTY';
 
-        let targetStatus: RoomHousekeepingStatus | null = null;
-        if (status === BookingStatus.CHECKED_IN) {
-          targetStatus = RoomHousekeepingStatus.IN_USE;
-        } else if (status === BookingStatus.CHECKED_OUT || status === BookingStatus.COMPLETED) {
-          targetStatus = RoomHousekeepingStatus.DIRTY;
-        }
-
-        if (targetStatus && roomsToUpdate.length > 0) {
-          await prisma.room.updateMany({
-            where: { id: { in: roomsToUpdate.map((r) => r.id) } },
-            data: { housekeepingStatus: targetStatus },
-          });
+        if (targetStatus && (roomsToUpdate as any[]).length > 0) {
+          await this.staffRepo.updateManyRooms((roomsToUpdate as any[]).map(r => r.id), { housekeepingStatus: targetStatus });
         }
       }
     }
@@ -429,62 +219,29 @@ export class StaffUseCase {
   }
 
   public async assignRoomNumbers(userId: string, role: string, bookingItemId: string, roomNumbers: string) {
-    const item = await prisma.bookingItem.findUnique({
-      where: { id: bookingItemId },
-      include: { roomType: { select: { hotelId: true } } },
-    });
-
+    const item = await this.staffRepo.findBookingItemById(bookingItemId, { roomType: { select: { hotelId: true } } }) as any;
     if (!item) throw new AppError('Không tìm thấy phòng trong booking', 404);
 
     const hotelId = await this.resolveHotelId(userId, role, item.roomType.hotelId);
-    if (item.roomType.hotelId !== hotelId) {
-      throw new AppError('Bạn không có quyền thao tác trên phòng này', 403);
-    }
+    if (item.roomType.hotelId !== hotelId) throw new AppError('Bạn không có quyền thao tác trên phòng này', 403);
 
-    const updatedItem = await prisma.bookingItem.update({
-      where: { id: bookingItemId },
-      data: { roomNumbers },
-    });
-
-    return updatedItem;
+    return this.staffRepo.updateBookingItem(bookingItemId, { roomNumbers });
   }
 
   public async getStaffRooms(userId: string, role: string, requestedHotelId?: string) {
     const hotelId = await this.resolveHotelId(userId, role, requestedHotelId);
-
-    const roomTypes = await prisma.roomType.findMany({
-      where: { hotelId },
-      include: {
-        rooms: {
-          orderBy: { roomNumber: 'asc' },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    return roomTypes;
+    return this.staffRepo.findRoomTypes({ hotelId }, { rooms: { orderBy: { roomNumber: 'asc' } } });
   }
 
-  public async updateRoomHousekeepingStatus(userId: string, role: string, roomId: string, status: RoomHousekeepingStatus) {
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-      include: { roomType: { select: { hotelId: true } } },
-    });
-
+  public async updateRoomHousekeepingStatus(userId: string, role: string, roomId: string, status: string) {
+    const room = await this.staffRepo.findRoomById(roomId, { roomType: { select: { hotelId: true } } }) as any;
     if (!room) throw new AppError('Không tìm thấy phòng', 404);
 
     const hotelId = await this.resolveHotelId(userId, role, room.roomType.hotelId);
-    if (room.roomType.hotelId !== hotelId) {
-      throw new AppError('Bạn không có quyền thao tác trên phòng này', 403);
-    }
+    if (room.roomType.hotelId !== hotelId) throw new AppError('Bạn không có quyền thao tác trên phòng này', 403);
 
-    const updatedRoom = await prisma.room.update({
-      where: { id: roomId },
-      data: { housekeepingStatus: status },
-    });
-
-    return updatedRoom;
+    return this.staffRepo.updateRoom(roomId, { housekeepingStatus: status });
   }
 }
 
-export default new StaffUseCase();
+export default StaffUseCase;

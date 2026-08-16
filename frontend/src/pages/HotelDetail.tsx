@@ -4,7 +4,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { setSearchCriteria, getLocalDateString } from '../store/slices/searchSlice';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
-import { formatDateVN, formatFullDateVN } from '../utils/date';
+import { formatDateVN } from '../utils/date';
 import { useModal } from '../components/common/ModalContext';
 import { socket } from '../core/socket/socket';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';

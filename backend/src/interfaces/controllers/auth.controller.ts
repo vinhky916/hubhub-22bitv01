@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import authUseCase from '../../use-cases/auth/auth.use-case';
-import userUseCase from '../../use-cases/user/user.use-case';
+import { authUseCase, userUseCase, userRepo } from '../../config/container';
 import { AuthenticatedRequest } from '../../infrastructure/middlewares/auth.middleware';
-import prisma from '../../config/database';
+import prisma from '../../config/database'; // Chỉ dùng cho các truy vấn admin phức tạp chưa có repository
 import axios from 'axios';
 
 export class AuthController {
@@ -21,8 +20,9 @@ export class AuthController {
 
   public async verifyEmail(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, otpCode } = req.body;
-      const result = await authUseCase.verifyEmail(email, otpCode);
+      const { email, otpCode, otp } = req.body;
+      const codeToVerify = otpCode || otp;
+      const result = await authUseCase.verifyEmail(email, codeToVerify);
       res.status(200).json({
         success: true,
         message: 'Xác thực tài khoản thành công. Bây giờ bạn có thể đăng nhập.',
@@ -36,10 +36,24 @@ export class AuthController {
   public async resendOTP(req: Request, res: Response, next: NextFunction) {
     try {
       const { email } = req.body;
-      await authUseCase.resendOTP(email);
+      const result = await authUseCase.resendOTP(email);
       res.status(200).json({
         success: true,
         message: 'Mã OTP mới đã được gửi đến email của bạn.',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public async checkOTP(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, otpCode } = req.body;
+      const result = await authUseCase.checkOTP(email, otpCode);
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);
@@ -109,10 +123,11 @@ export class AuthController {
   public async forgotPassword(req: Request, res: Response, next: NextFunction) {
     try {
       const { email } = req.body;
-      await authUseCase.forgotPassword(email);
+      const result = await authUseCase.forgotPassword(email);
       res.status(200).json({
         success: true,
         message: 'Mã khôi phục mật khẩu đã được gửi đến email của bạn.',
+        data: result,
       });
     } catch (error) {
       next(error);

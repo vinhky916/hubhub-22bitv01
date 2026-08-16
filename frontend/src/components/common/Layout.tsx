@@ -11,7 +11,7 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const isDashboard = ['/admin-dashboard', '/owner-dashboard', '/staff-dashboard'].includes(location.pathname);
-  const isAuthPage = ['/login', '/register', '/register/owner'].includes(location.pathname);
+  const isAuthPage = ['/login', '/register', '/register/owner', '/forgot-password', '/reset-password'].includes(location.pathname);
   const isCheckoutOrPayment = ['/checkout', '/payment'].includes(location.pathname);
 
   if (isDashboard || isAuthPage) {

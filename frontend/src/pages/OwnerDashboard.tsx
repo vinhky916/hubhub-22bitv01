@@ -331,8 +331,14 @@ export const OwnerDashboard: React.FC = () => {
   const [stats, setStats] = useState<any>({
     todayBookings: 0, upcomingCheckIn: 0, upcomingCheckOut: 0,
     availableRooms: 0, occupiedRooms: 0, revenueToday: 0, revenueMonth: 0,
-    averageRating: 0, occupancyRate: 0, cancellationRate: 0
+    averageRating: 0, occupancyRate: 0, cancellationRate: 0,
+    financials: { grossRevenue: 0, platformCommission: 0, netPayout: 0, totalRefunded: 0, pendingPayout: 0, commissionRate: 10 }
   });
+  const [financialTransactions, setFinancialTransactions] = useState<any[]>([]);
+  const [financeSearch, setFinanceSearch] = useState('');
+  const [financePayoutFilter, setFinancePayoutFilter] = useState('ALL');
+  const [financePage, setFinancePage] = useState(1);
+
   const [chartData, setChartData] = useState<any[]>([]);
   const [occupancyData, setOccupancyData] = useState<any[]>([]);
   const [recentReviews, setRecentReviews] = useState<any[]>([]);
@@ -583,31 +589,6 @@ export const OwnerDashboard: React.FC = () => {
     });
   };
 
-  const handleExportBookingsExcel = () => {
-    const filteredList = filterBookingsByDateRange(bookings);
-    if (!filteredList || filteredList.length === 0) {
-      showAlert(language === 'vi' ? 'Không có dữ liệu đặt phòng trong khoảng thời gian đã chọn để xuất!' : 'No booking data in selected range to export!');
-      return;
-    }
-    const data = filteredList.map(b => ({
-      'Mã Đặt Phòng': b.id.substring(0, 8).toUpperCase(),
-      'Khách Hàng': b.guestName,
-      'Số Điện Thoại': b.guestPhone,
-      'Email': b.guestEmail,
-      'Ngày Nhận Phòng': formatDateVN(b.checkInDate),
-      'Ngày Trả Phòng': formatDateVN(b.checkOutDate),
-      'Số Khách': b.numGuests,
-      'Tổng Tiền Gốc (VNĐ)': Number(b.totalPrice) || 0,
-      'Giảm Giá (VNĐ)': Number(b.discountAmount) || 0,
-      'Thành Tiền (VNĐ)': Number(b.finalPrice) || 0,
-      'Trạng Thái': b.status === 'CONFIRMED' ? 'Đã xác nhận' : b.status === 'COMPLETED' ? 'Hoàn tất' : b.status === 'CANCELLED' ? 'Đã hủy' : 'Chờ xử lý',
-      'Thời Gian Đặt': formatDateTimeVN(b.createdAt)
-    }));
-    exportToExcel(data, `Danh_Sach_Dat_Phong_${new Date().toISOString().slice(0, 10)}`, 'Đặt Phòng');
-  };
-
-  const handleExportCSV = handleExportBookingsExcel;
-
   const handleExportCustomersExcel = () => {
     const custs = getUniqueCustomers();
     if (!custs || custs.length === 0) {
@@ -629,13 +610,13 @@ export const OwnerDashboard: React.FC = () => {
       showAlert(language === 'vi' ? 'Không có dữ liệu loại phòng để xuất!' : 'No room data to export!');
       return;
     }
-    const data = roomTypes.map(rt => ({
+    const data = roomTypes.map((rt: any) => ({
       'Tên Loại Phòng': rt.name,
-      'Giá Niêm Yết (VNĐ)': Number(rt.price) || 0,
+      'Giá Niêm Yết (VNĐ)': Number(rt.basePrice || rt.price) || 0,
       'Sức Chứa (Người)': rt.capacity,
-      'Số Giường': rt.beds,
-      'Diện Tích (m2)': rt.areaSize || 0,
-      'Có Ăn Sáng': rt.hasBreakfast ? 'Có' : 'Không',
+      'Số Giường': rt.bedCount || rt.beds || 1,
+      'Diện Tích (m2)': rt.size || rt.areaSize || 0,
+      'Có Ăn Sáng': (rt.includeBreakfast ?? rt.hasBreakfast) ? 'Có' : 'Không',
       'Mô Tả': rt.description
     }));
     exportToExcel(data, `Danh_Sach_Loai_Phong_${new Date().toISOString().slice(0, 10)}`, 'Loại Phòng');
@@ -836,6 +817,7 @@ export const OwnerDashboard: React.FC = () => {
 
       const res = await apiClient.get(`/bookings/owner-stats?${params.toString()}`);
       setStats(res.data.data.stats);
+      setFinancialTransactions(res.data.data.financialTransactions || []);
       setChartData(res.data.data.chartData);
       setOccupancyData(res.data.data.occupancyData);
       setRecentReviews(res.data.data.recentReviews || []);
@@ -860,6 +842,7 @@ export const OwnerDashboard: React.FC = () => {
     setHotelId(selectedId);
     setFilterHotelId(selectedId);
     fetchOwnerStats(selectedId, chartTimeFrame);
+    if (!selectedId || selectedId === 'ALL') return;
     try {
       const hotelDetailRes = await apiClient.get(`/hotels/${selectedId}`);
       const detail = hotelDetailRes.data.data;
@@ -4480,12 +4463,57 @@ export const OwnerDashboard: React.FC = () => {
             const filteredBookings = filterBookingsByDateRange(bookings);
             const confirmedBookings = filteredBookings.filter(b => b.status !== 'CANCELLED');
             
-            const totalNetRevenue = confirmedBookings.reduce((sum, b) => sum + (Number(b.finalPrice) || Number(b.totalPrice) || 0), 0);
-            const totalGrossRevenue = confirmedBookings.reduce((sum, b) => sum + (Number(b.totalPrice) || 0), 0);
-            const totalDiscountGiven = confirmedBookings.reduce((sum, b) => sum + (Number(b.discountAmount) || 0), 0);
+            // Dynamic Financial KPIs calculation based on filteredBookings
+            const validFilteredBookings = filteredBookings.filter(b => ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(b.status));
+            const activeCommRate = stats.financials?.commissionRate || 10;
+
+            const dynGross = validFilteredBookings.reduce((sum, b) => sum + (Number(b.finalPrice) || 0), 0);
+            const dynComm = validFilteredBookings.reduce((sum, b) => {
+              const comm = (b.commissionAmount && Number(b.commissionAmount) > 0)
+                ? Number(b.commissionAmount)
+                : Number(((Number(b.finalPrice) || 0) * (activeCommRate / 100)).toFixed(2));
+              return sum + comm;
+            }, 0);
+            const dynRefund = filteredBookings.reduce((sum, b) => {
+              const ref = (b.refundAmount && Number(b.refundAmount) > 0)
+                ? Number(b.refundAmount)
+                : (b.status === 'REFUNDED' ? Number(b.finalPrice) : 0);
+              return sum + ref;
+            }, 0);
+            const dynNet = validFilteredBookings.reduce((sum, b) => {
+              const comm = (b.commissionAmount && Number(b.commissionAmount) > 0)
+                ? Number(b.commissionAmount)
+                : Number(((Number(b.finalPrice) || 0) * (activeCommRate / 100)).toFixed(2));
+              const ref = (b.refundAmount && Number(b.refundAmount) > 0) ? Number(b.refundAmount) : 0;
+              const net = (b.ownerNetAmount && Number(b.ownerNetAmount) > 0)
+                ? Number(b.ownerNetAmount)
+                : Math.max(0, Number(b.finalPrice) - comm - ref);
+              return sum + net;
+            }, 0);
+            const dynPending = validFilteredBookings.reduce((sum, b) => {
+              let pStatus = b.payoutStatus;
+              if (!pStatus || pStatus === 'PENDING') {
+                if (b.status === 'COMPLETED') pStatus = 'PAID';
+                else if (b.status === 'CHECKED_OUT') pStatus = 'ELIGIBLE';
+                else if (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN') pStatus = 'PENDING';
+                else pStatus = 'FAILED';
+              }
+              if (['PENDING', 'ELIGIBLE', 'PROCESSING'].includes(pStatus)) {
+                const comm = (b.commissionAmount && Number(b.commissionAmount) > 0)
+                  ? Number(b.commissionAmount)
+                  : Number(((Number(b.finalPrice) || 0) * (activeCommRate / 100)).toFixed(2));
+                const ref = (b.refundAmount && Number(b.refundAmount) > 0) ? Number(b.refundAmount) : 0;
+                const net = (b.ownerNetAmount && Number(b.ownerNetAmount) > 0)
+                  ? Number(b.ownerNetAmount)
+                  : Math.max(0, Number(b.finalPrice) - comm - ref);
+                return sum + net;
+              }
+              return sum;
+            }, 0);
+
             const totalBookingsCount = confirmedBookings.length;
-            const avgRevenuePerBooking = totalBookingsCount > 0 ? totalNetRevenue / totalBookingsCount : 0;
-            const totalRooms = roomTypes.reduce((acc, rt) => acc + (rt.totalRooms || 5), 0);
+            const avgRevenuePerBooking = totalBookingsCount > 0 ? (dynNet / totalBookingsCount) : 0;
+            const totalRooms = roomTypes.reduce((acc, rt: any) => acc + (rt.rooms?.length || 5), 0);
             const avgOccupancy = totalRooms > 0 ? Math.min(96, Math.round((totalBookingsCount / (totalRooms * 30)) * 100 * 10) / 10) : 78.5;
 
             // Trend Chart Data (Group by date)
@@ -4615,6 +4643,79 @@ export const OwnerDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                {/* 5 FINANCIAL OVERVIEW KPI CARDS (DYNAMICALLY FILTERED) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  {/* Card 1: Gross Revenue */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-blue-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>💰 Doanh Thu Gross</span>
+                      <TrendingUp className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <p className="text-2xl font-black text-slate-900">
+                      {formatNumberDots(dynGross)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng booking trước refund & hoa hồng
+                    </p>
+                  </div>
+
+                  {/* Card 2: Net Payout */}
+                  <div className="bg-emerald-50/50 border border-emerald-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-emerald-400 transition-all">
+                    <div className="flex items-center justify-between text-emerald-800 text-xs font-extrabold uppercase">
+                      <span>💵 Doanh Thu Thực Nhận</span>
+                      <DollarSign className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <p className="text-2xl font-black text-emerald-600">
+                      {formatNumberDots(dynNet)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-bold text-emerald-700 border-t border-emerald-100 pt-1.5">
+                      Số tiền Owner hưởng sau trừ commission & refund
+                    </p>
+                  </div>
+
+                  {/* Card 3: Platform Commission */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-indigo-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>🏦 Hoa Hồng Sàn ({activeCommRate}%)</span>
+                      <Building2 className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <p className="text-2xl font-black text-indigo-600">
+                      {formatNumberDots(dynComm)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng hoa hồng CloudBooking khấu trừ
+                    </p>
+                  </div>
+
+                  {/* Card 4: Total Refunded */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-rose-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>↩️ Tổng Tiền Hoàn</span>
+                      <RotateCcw className="w-4 h-4 text-rose-500" />
+                    </div>
+                    <p className="text-2xl font-black text-rose-600">
+                      {formatNumberDots(dynRefund)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng tiền đã refund hoàn trả cho khách
+                    </p>
+                  </div>
+
+                  {/* Card 5: Pending Payout */}
+                  <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-amber-400 transition-all">
+                    <div className="flex items-center justify-between text-amber-800 text-xs font-extrabold uppercase">
+                      <span>⏳ Chờ Thanh Toán</span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <p className="text-2xl font-black text-amber-600">
+                      {formatNumberDots(dynPending)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-bold text-amber-700 border-t border-amber-100 pt-1.5">
+                      Đủ điều kiện nhận nhưng chưa payout
+                    </p>
+                  </div>
+                </div>
+
                 {/* 4 Key Performance Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white border border-[#E2E8F0] p-5 rounded-3xl shadow-[0_4px_12px_rgba(15,23,42,0.03)] space-y-2">
@@ -4624,7 +4725,7 @@ export const OwnerDashboard: React.FC = () => {
                         <TrendingUp className="w-4 h-4" />
                       </div>
                     </div>
-                    <p className="text-2xl font-black text-emerald-600">{formatNumberDots(totalNetRevenue)} đ</p>
+                    <p className="text-2xl font-black text-emerald-600">{formatNumberDots(dynNet)} đ</p>
                     <p className="text-[10px] font-bold text-slate-400">Đơn đã xác nhận / hoàn thành</p>
                   </div>
 
@@ -4761,7 +4862,7 @@ export const OwnerDashboard: React.FC = () => {
                           return (
                             <tr key={rt.id} className="hover:bg-slate-50 transition-colors">
                               <td className="py-3 px-4 font-black text-slate-800">{rt.name}</td>
-                              <td className="py-3 px-4 text-slate-600 font-bold">{formatNumberDots(rt.price)} đ</td>
+                              <td className="py-3 px-4 text-slate-600 font-bold">{formatNumberDots(rt.basePrice)} đ</td>
                               <td className="py-3 px-4 font-extrabold text-blue-600">{rtBookings.length} đơn</td>
                               <td className="py-3 px-4">
                                 <div className="flex items-center gap-2">
@@ -4836,26 +4937,100 @@ export const OwnerDashboard: React.FC = () => {
             );
           })()}
 
-          {/* 11. FINANCE TAB (BÁO CÁO TÀI CHÍNH & THU NHẬP) */}
+          {/* 11. FINANCE TAB (BÁO CÁO TÀI CHÍNH & THU NHẬP OWNER) */}
           {activeMenu === 'finance' && (() => {
-            const filteredBookings = filterBookingsByDateRange(bookings);
-            const confirmedBookings = filteredBookings.filter(b => b.status !== 'CANCELLED');
-            const totalGross = confirmedBookings.reduce((acc, b) => acc + (Number(b.totalPrice) || 0), 0);
-            const totalDiscount = confirmedBookings.reduce((acc, b) => acc + (Number(b.discountAmount) || 0), 0);
-            const totalNet = confirmedBookings.reduce((acc, b) => acc + (Number(b.finalPrice) || 0), 0);
+            // Date & Hotel Filtered Transactions
+            const dateFilteredTx = financialTransactions.filter(tx => {
+              if (hotelId && hotelId !== 'ALL' && tx.hotelId && tx.hotelId !== hotelId) {
+                return false;
+              }
+              if (reportStartDate) {
+                const txDate = new Date(tx.createdAt || tx.checkInDate).setHours(0, 0, 0, 0);
+                const sDate = new Date(reportStartDate).setHours(0, 0, 0, 0);
+                if (txDate < sDate) return false;
+              }
+              if (reportEndDate) {
+                const txDate = new Date(tx.createdAt || tx.checkInDate).setHours(23, 59, 59, 999);
+                const eDate = new Date(reportEndDate).setHours(23, 59, 59, 999);
+                if (txDate > eDate) return false;
+              }
+              return true;
+            });
+
+            // Dynamic KPI Calculations for Finance Tab (Exclude CANCELLED bookings for Gross, Net, Comm, Pending)
+            const validTxList = dateFilteredTx.filter(tx => ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'COMPLETED'].includes(tx.bookingStatus));
+            const activeCommRate = stats.financials?.commissionRate || 10;
+            const dynGross = validTxList.reduce((sum, tx) => sum + (tx.grossRevenue || 0), 0);
+            const dynComm = validTxList.reduce((sum, tx) => sum + (tx.commissionAmount || 0), 0);
+            const dynRefund = dateFilteredTx.reduce((sum, tx) => sum + (tx.refundAmount || 0), 0);
+            const dynNet = validTxList.reduce((sum, tx) => sum + (tx.ownerNetAmount || 0), 0);
+            const dynPending = validTxList.reduce((sum, tx) => {
+              if (['PENDING', 'ELIGIBLE', 'PROCESSING'].includes(tx.payoutStatus)) {
+                return sum + (tx.ownerNetAmount || 0);
+              }
+              return sum;
+            }, 0);
+
+            // Filtered Transactions for Table (including Payout status and search query)
+            const filteredTx = dateFilteredTx.filter(tx => {
+              if (financePayoutFilter !== 'ALL' && tx.payoutStatus !== financePayoutFilter) {
+                return false;
+              }
+              if (financeSearch) {
+                const q = financeSearch.toLowerCase();
+                return (
+                  tx.id?.toLowerCase().includes(q) ||
+                  tx.guestName?.toLowerCase().includes(q) ||
+                  tx.hotelName?.toLowerCase().includes(q) ||
+                  tx.guestPhone?.toLowerCase().includes(q)
+                );
+              }
+              return true;
+            });
+
+            const pageSize = 10;
+            const totalPages = Math.ceil(filteredTx.length / pageSize) || 1;
+            const pageTx = filteredTx.slice((financePage - 1) * pageSize, financePage * pageSize);
+
+            const handleQuickPreset = (type: string) => {
+              const now = new Date();
+              if (type === 'TODAY') {
+                const todayIso = now.toISOString().split('T')[0];
+                setReportStartDate(todayIso);
+                setReportEndDate(todayIso);
+              } else if (type === 'THIS_MONTH') {
+                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                const todayIso = now.toISOString().split('T')[0];
+                setReportStartDate(firstDay);
+                setReportEndDate(todayIso);
+              } else if (type === 'LAST_MONTH') {
+                const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+                const lastDay = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+                setReportStartDate(firstDay);
+                setReportEndDate(lastDay);
+              } else if (type === 'THIS_YEAR') {
+                const firstDay = `${now.getFullYear()}-01-01`;
+                const todayIso = now.toISOString().split('T')[0];
+                setReportStartDate(firstDay);
+                setReportEndDate(todayIso);
+              } else if (type === 'ALL') {
+                setReportStartDate('');
+                setReportEndDate('');
+              }
+            };
 
             return (
               <div className="space-y-6">
-                {/* Header & Date Range Filter */}
+                {/* Header & Date Range Filter Bar */}
                 <div className="bg-white border border-[#E2E8F0] p-5 rounded-3xl shadow-[0_4px_12px_rgba(15,23,42,0.03)] space-y-4">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
+                  <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-slate-100 pb-4">
                     <div>
                       <h3 className="font-black text-[#0F172A] text-base uppercase tracking-tight flex items-center gap-2">
                         <CreditCard className="w-5 h-5 text-emerald-600" />
-                        {language === 'vi' ? 'Báo cáo tài chính & doanh thu lợi nhuận' : 'Financial Statement & Revenue Breakdown'}
+                        Báo Cáo Dòng Tiền, Hoa Hồng & Đối Soát Payout Owner
                       </h3>
                       <p className="text-xs text-slate-500 font-semibold mt-1">
-                        Chi tiết doanh thu thực nhận, các khoản khuyến mãi chiết khấu và báo cáo dòng tiền
+                        Chi tiết doanh thu Gross, chiết khấu hoa hồng sàn, các khoản tiền hoàn và số tiền chờ đối soát Payout.
                       </p>
                     </div>
 
@@ -4881,92 +5056,270 @@ export const OwnerDashboard: React.FC = () => {
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm active:scale-95 shrink-0"
                       >
                         <Download className="w-4 h-4" />
-                        {language === 'vi' ? 'Xuất Báo Cáo Tài Chính (Excel)' : 'Export Financial Statement (Excel)'}
+                        Xuất Báo Cáo Tài Chính (Excel)
                       </button>
                     </div>
                   </div>
 
-                  {/* Date range picker for Finance */}
+                  {/* Bộ chọn Ngày & Nút chọn nhanh cho Tab Tài Chính */}
                   <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-extrabold text-slate-700">Lọc khoảng ngày:</span>
-                      <input
-                        type="date"
-                        value={reportStartDate}
-                        onChange={(e) => setReportStartDate(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-bold outline-none"
-                      />
-                      <span className="text-slate-400">&rarr;</span>
-                      <input
-                        type="date"
-                        value={reportEndDate}
-                        onChange={(e) => setReportEndDate(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-bold outline-none"
-                      />
+                      <span className="font-extrabold text-slate-700">Lọc ngày:</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="date"
+                          value={reportStartDate}
+                          onChange={(e) => setReportStartDate(e.target.value)}
+                          className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-bold outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-slate-400">&rarr;</span>
+                        <input
+                          type="date"
+                          value={reportEndDate}
+                          onChange={(e) => setReportEndDate(e.target.value)}
+                          className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-bold outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-slate-400 font-bold text-[11px]">Chọn nhanh:</span>
+                      <button onClick={() => handleQuickPreset('TODAY')} className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 font-extrabold transition-all">Hôm nay</button>
+                      <button onClick={() => handleQuickPreset('THIS_MONTH')} className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 font-extrabold transition-all">Tháng này</button>
+                      <button onClick={() => handleQuickPreset('LAST_MONTH')} className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 font-extrabold transition-all">Tháng trước</button>
+                      <button onClick={() => handleQuickPreset('THIS_YEAR')} className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-600 font-extrabold transition-all">Năm nay</button>
+                      <button onClick={() => handleQuickPreset('ALL')} className="px-3 py-1 rounded-xl bg-emerald-600 text-white font-extrabold transition-all shadow-2xs">Tất cả</button>
                     </div>
                   </div>
                 </div>
 
-                {/* 3 Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2">
-                    <span className="text-xs font-bold text-slate-500 uppercase">Tổng doanh thu niêm yết (Gross)</span>
-                    <p className="text-2xl font-black text-slate-800">{formatNumberDots(totalGross)} đ</p>
-                    <p className="text-[10px] font-bold text-slate-400">Doanh thu trước khi trừ khuyến mãi</p>
+                {/* 5 FINANCIAL OVERVIEW KPI CARDS (DYNAMICALLY FILTERED) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  {/* Card 1: Gross Revenue */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-blue-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>💰 Doanh Thu Gross</span>
+                      <TrendingUp className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <p className="text-2xl font-black text-slate-900">
+                      {formatNumberDots(dynGross)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng booking trước refund & hoa hồng
+                    </p>
                   </div>
 
-                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2">
-                    <span className="text-xs font-bold text-slate-500 uppercase">Tổng chiết khấu & Khuyến mãi</span>
-                    <p className="text-2xl font-black text-rose-600">-{formatNumberDots(totalDiscount)} đ</p>
-                    <p className="text-[10px] font-bold text-slate-400">Tổng các mã giảm giá khách đã áp dụng</p>
+                  {/* Card 2: Net Payout */}
+                  <div className="bg-emerald-50/50 border border-emerald-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-emerald-400 transition-all">
+                    <div className="flex items-center justify-between text-emerald-800 text-xs font-extrabold uppercase">
+                      <span>💵 Doanh Thu Thực Nhận</span>
+                      <DollarSign className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <p className="text-2xl font-black text-emerald-600">
+                      {formatNumberDots(dynNet)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-bold text-emerald-700 border-t border-emerald-100 pt-1.5">
+                      Số tiền Owner hưởng sau trừ commission & refund
+                    </p>
                   </div>
 
-                  <div className="bg-white border border-emerald-200 bg-emerald-50/20 p-5 rounded-3xl space-y-2">
-                    <span className="text-xs font-extrabold text-emerald-800 uppercase">Doanh thu thực nhận (Net Revenue)</span>
-                    <p className="text-2xl font-black text-emerald-600">{formatNumberDots(totalNet)} đ</p>
-                    <p className="text-[10px] font-bold text-emerald-700">Doanh thu thực tế về tài khoản chủ chỗ nghỉ</p>
+                  {/* Card 3: Platform Commission */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-indigo-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>🏦 Hoa Hồng Sàn ({activeCommRate}%)</span>
+                      <Building2 className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <p className="text-2xl font-black text-indigo-600">
+                      {formatNumberDots(dynComm)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng hoa hồng CloudBooking khấu trừ
+                    </p>
+                  </div>
+
+                  {/* Card 4: Total Refunded */}
+                  <div className="bg-white border border-slate-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-rose-300 transition-all">
+                    <div className="flex items-center justify-between text-slate-500 text-xs font-bold uppercase">
+                      <span>↩️ Tổng Tiền Hoàn</span>
+                      <RotateCcw className="w-4 h-4 text-rose-500" />
+                    </div>
+                    <p className="text-2xl font-black text-rose-600">
+                      {formatNumberDots(dynRefund)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-semibold text-slate-400 border-t border-slate-100 pt-1.5">
+                      Tổng tiền đã refund hoàn trả cho khách
+                    </p>
+                  </div>
+
+                  {/* Card 5: Pending Payout */}
+                  <div className="bg-amber-50/50 border border-amber-200 p-5 rounded-3xl space-y-2 shadow-xs hover:border-amber-400 transition-all">
+                    <div className="flex items-center justify-between text-amber-800 text-xs font-extrabold uppercase">
+                      <span>⏳ Chờ Thanh Toán</span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <p className="text-2xl font-black text-amber-600">
+                      {formatNumberDots(dynPending)} <span className="text-xs">đ</span>
+                    </p>
+                    <p className="text-[10px] font-bold text-amber-700 border-t border-amber-100 pt-1.5">
+                      Đủ điều kiện nhận nhưng chưa payout
+                    </p>
                   </div>
                 </div>
 
-                {/* Bảng kê khai tài chính */}
+                {/* BẢNG KÊ KHAI TÀI CHÍNH & ĐỐI SOÁT PAYOUT CHI TIẾT */}
                 <div className="bg-white border border-[#E2E8F0] p-6 rounded-3xl shadow-[0_4px_12px_rgba(15,23,42,0.03)] space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                    <h4 className="font-extrabold text-sm text-[#0F172A] uppercase">Bảng kê giao dịch tài chính theo đơn</h4>
-                    <span className="text-xs font-bold text-slate-500">{confirmedBookings.length} giao dịch thành công</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div>
+                      <h4 className="font-extrabold text-base text-[#0F172A] uppercase flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        Bảng Giao Dịch Tài Chính & Trạng Thái Payout ({filteredTx.length})
+                      </h4>
+                      <p className="text-xs text-slate-400 font-semibold mt-0.5">Chi tiết từng booking, giá trị Gross, phí hoa hồng, tiền hoàn và trạng thái thanh toán đối soát.</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Search box */}
+                      <div className="relative w-64">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Tìm mã đơn, tên khách..."
+                          value={financeSearch}
+                          onChange={(e) => {
+                            setFinanceSearch(e.target.value);
+                            setFinancePage(1);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl pl-9 pr-3 py-2 outline-none focus:border-blue-500"
+                        />
+                      </div>
+
+                      {/* Status Filter */}
+                      <select
+                        value={financePayoutFilter}
+                        onChange={(e) => {
+                          setFinancePayoutFilter(e.target.value);
+                          setFinancePage(1);
+                        }}
+                        className="bg-slate-50 border border-slate-200 text-slate-800 text-xs font-extrabold rounded-xl px-3 py-2 outline-none cursor-pointer"
+                      >
+                        <option value="ALL">Tất cả Payout</option>
+                        <option value="PENDING">PENDING (Đang chờ)</option>
+                        <option value="ELIGIBLE">ELIGIBLE (Đủ điều kiện)</option>
+                        <option value="PROCESSING">PROCESSING (Đang xử lý)</option>
+                        <option value="PAID">PAID (Đã thanh toán)</option>
+                        <option value="FAILED">FAILED (Lỗi payout)</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                  <div className="overflow-x-auto border border-slate-200 rounded-2xl">
                     <table className="w-full text-xs font-semibold text-left">
                       <thead className="bg-[#F8FAFC] text-slate-500 text-[10px] uppercase font-bold border-b border-slate-200">
                         <tr>
-                          <th className="p-3.5">Mã đơn</th>
-                          <th className="p-3.5">Ngày giao dịch</th>
-                          <th className="p-3.5">Tên khách hàng</th>
-                          <th className="p-3.5">Doanh thu gốc</th>
-                          <th className="p-3.5">Chiết khấu</th>
-                          <th className="p-3.5">Thành tiền thực nhận</th>
-                          <th className="p-3.5">Trạng thái thanh toán</th>
+                          <th className="p-3.5">STT</th>
+                          <th className="p-3.5">Mã đơn & Khách sạn</th>
+                          <th className="p-3.5">Khách hàng</th>
+                          <th className="p-3.5 text-right">Doanh Thu Gross</th>
+                          <th className="p-3.5 text-right">Hoa Hồng ({stats.financials?.commissionRate || 10}%)</th>
+                          <th className="p-3.5 text-right">Tiền Hoàn (Refund)</th>
+                          <th className="p-3.5 text-right">Owner Net</th>
+                          <th className="p-3.5 text-right">Tiền Payout</th>
+                          <th className="p-3.5 text-center">Trạng Thái Payout</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {confirmedBookings.map((b) => (
-                          <tr key={b.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="p-3.5 font-mono font-extrabold text-blue-600">#{b.id.substring(0, 8).toUpperCase()}</td>
-                            <td className="p-3.5 text-slate-500">{formatDateVN(b.createdAt)}</td>
-                            <td className="p-3.5 font-bold text-slate-800">{b.guestName}</td>
-                            <td className="p-3.5 text-slate-600 font-bold">{formatNumberDots(b.totalPrice)} đ</td>
-                            <td className="p-3.5 text-rose-500 font-bold">-{formatNumberDots(b.discountAmount || 0)} đ</td>
-                            <td className="p-3.5 font-black text-emerald-600">{formatNumberDots(b.finalPrice)} đ</td>
-                            <td className="p-3.5">
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800">
-                                ĐÃ THANH TOÁN
-                              </span>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {pageTx.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="text-center py-8 text-slate-400 font-bold">
+                              Không có giao dịch tài chính nào phù hợp với bộ lọc.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          pageTx.map((tx, idx) => (
+                            <tr key={tx.id} className="hover:bg-blue-50/30 transition-colors">
+                              <td className="p-3.5 font-bold text-slate-400">
+                                {(financePage - 1) * pageSize + idx + 1}
+                              </td>
+
+                              <td className="p-3.5">
+                                <p className="font-mono font-black text-blue-600 text-xs">#{tx.id.substring(0, 8).toUpperCase()}</p>
+                                <p className="text-[10px] font-bold text-slate-500 mt-0.5">{tx.hotelName}</p>
+                              </td>
+
+                              <td className="p-3.5">
+                                <p className="font-bold text-slate-800">{tx.guestName}</p>
+                                <p className="text-[10px] text-slate-400 font-semibold">{tx.guestPhone}</p>
+                              </td>
+
+                              <td className="p-3.5 text-right font-bold text-slate-900">
+                                {formatNumberDots(tx.grossRevenue)} đ
+                              </td>
+
+                              <td className="p-3.5 text-right font-bold text-indigo-600">
+                                -{formatNumberDots(tx.commissionAmount)} đ
+                              </td>
+
+                              <td className="p-3.5 text-right font-bold text-rose-500">
+                                {tx.refundAmount > 0 ? `-${formatNumberDots(tx.refundAmount)} đ` : '0 đ'}
+                              </td>
+
+                              <td className="p-3.5 text-right font-black text-emerald-600">
+                                {formatNumberDots(tx.ownerNetAmount)} đ
+                              </td>
+
+                              <td className="p-3.5 text-right font-black text-slate-900">
+                                {tx.payoutStatus === 'PAID' ? `${formatNumberDots(tx.payoutAmount)} đ` : '—'}
+                              </td>
+
+                              <td className="p-3.5 text-center">
+                                {tx.payoutStatus === 'PAID' && (
+                                  <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                    Đã payout ({tx.payoutAt ? formatDateVN(tx.payoutAt) : 'OK'})
+                                  </span>
+                                )}
+                                {['PENDING', 'ELIGIBLE', 'PROCESSING'].includes(tx.payoutStatus) && (
+                                  <span className="bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                    Chờ thanh toán ({tx.payoutStatus})
+                                  </span>
+                                )}
+                                {tx.payoutStatus === 'FAILED' && (
+                                  <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                    Lỗi Payout
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-xs text-slate-400 font-bold">
+                        Trang {financePage} / {totalPages} (Tổng {filteredTx.length} giao dịch)
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          disabled={financePage === 1}
+                          onClick={() => setFinancePage(prev => Math.max(1, prev - 1))}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold text-xs rounded-xl"
+                        >
+                          Trang trước
+                        </button>
+                        <button
+                          disabled={financePage === totalPages}
+                          onClick={() => setFinancePage(prev => Math.min(totalPages, prev + 1))}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl"
+                        >
+                          Trang sau
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

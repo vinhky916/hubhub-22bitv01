@@ -4,7 +4,6 @@ import { useSelector, useDispatch } from 'react-redux';
 import { setSearchCriteria, getLocalDateString } from '../store/slices/searchSlice';
 import type { RootState } from '../store';
 import apiClient from '../core/api/client';
-import { formatDateVN, formatFullDateVN } from '../utils/date';
 import { VIETNAM_PROVINCES, type ProvinceItem } from '../core/constants/provinces';
 import {
   MapPin,
@@ -346,6 +345,20 @@ export const Search: React.FC = () => {
   const [recentSearches, setRecentSearches] = useState<any[]>([]);
   const [suggestedHotels, setSuggestedHotels] = useState<any[]>([]);
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+  const [cmsBanners, setCmsBanners] = useState<any[]>([]);
+
+  useEffect(() => {
+    apiClient.get('/cms/banners', { params: { activeOnly: 'true' } })
+      .then(res => {
+        if (res.data.success && Array.isArray(res.data.data)) {
+          setCmsBanners(res.data.data);
+        }
+      })
+      .catch(err => console.error('Failed to fetch CMS banners in search:', err));
+  }, []);
+
+  const searchBanner = cmsBanners.find(b => b.position === 'SEARCH_BANNER');
+  const searchHeroBgUrl = searchBanner?.imageUrl || '/banner.webp';
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     popular: true,
@@ -1059,8 +1072,8 @@ export const Search: React.FC = () => {
       <div className="relative">
         {/* Hero Section */}
         <section
-          style={{ backgroundImage: "url('/banner.webp')" }}
-          className="relative bg-cover bg-center text-white pt-24 pb-16 px-4 sm:px-6 lg:px-8 shadow-2xl overflow-hidden min-h-[220px] flex items-center justify-center"
+          style={{ backgroundImage: `url('${searchHeroBgUrl}')` }}
+          className="relative bg-cover bg-center text-white pt-24 pb-16 px-4 sm:px-6 lg:px-8 shadow-2xl overflow-hidden min-h-[220px] flex items-center justify-center transition-all duration-700"
         >
           {/* Lớp phủ tối nhẹ sắc nét bảo vệ độ tương phản chữ */}
           <div className="absolute inset-0 bg-black/35 z-0"></div>

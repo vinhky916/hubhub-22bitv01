@@ -10,7 +10,7 @@ import {
   Sun, Moon, Globe, LogOut, Settings, User, Key, Menu, 
   Users, Hotel, Bed, CalendarRange, CreditCard, Star, FileText, BarChart3, 
   Database, ShieldAlert, CheckCircle, Trash2, ChevronDown, Sliders, RefreshCw,
-  Download, Upload
+  Download, Upload, Image, Layers, CheckSquare, XCircle, Info, Sparkles, DollarSign, Building, UploadCloud, Edit3, Save
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, 
@@ -70,7 +70,7 @@ export const AdminDashboard: React.FC = () => {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeMenu, setActiveMenu] = useState<
-    'dashboard' | 'users' | 'hotels' | 'rooms' | 'bookings' | 'payment' | 'promotions' | 'reviews' | 'cms' | 'reports' | 'logs' | 'settings'
+    'dashboard' | 'system-hotels-stats' | 'users' | 'hotels' | 'rooms' | 'bookings' | 'payment' | 'promotions' | 'reviews' | 'cms' | 'reports' | 'logs' | 'settings'
   >('dashboard');
   const [language, setLanguage] = useState<'vi' | 'en'>('vi');
 
@@ -163,6 +163,422 @@ export const AdminDashboard: React.FC = () => {
 
   const [allReviews, setAllReviews] = useState<any[]>([]);
   const [allReviewsLoading, setAllReviewsLoading] = useState(false);
+
+  // --- CMS Banners, Categories, Amenities States ---
+  const [cmsSubTab, setCmsSubTab] = useState<'banners' | 'categories' | 'amenities'>('banners');
+  const [banners, setBanners] = useState<any[]>([]);
+  const [bannersLoading, setBannersLoading] = useState(false);
+  const [showAddBannerModal, setShowAddBannerModal] = useState(false);
+  const [newBannerTitle, setNewBannerTitle] = useState('');
+  const [newBannerImage, setNewBannerImage] = useState('');
+  const [newBannerLink, setNewBannerLink] = useState('');
+  const [newBannerPosition, setNewBannerPosition] = useState<'HOME_HERO' | 'HOME_SIDEBAR' | 'SEARCH_BANNER'>('HOME_HERO');
+  const [uploadingBannerImage, setUploadingBannerImage] = useState(false);
+
+  const [editingBanner, setEditingBanner] = useState<any>(null);
+  const [showEditBannerModal, setShowEditBannerModal] = useState(false);
+
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatDesc, setNewCatDesc] = useState('');
+  const [newCatImage, setNewCatImage] = useState('');
+
+  const [editingCategory, setEditingCategory] = useState<any>(null);
+  const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
+
+
+  const [amenities, setAmenities] = useState<any[]>([]);
+  const [amenitiesLoading, setAmenitiesLoading] = useState(false);
+  const [showAddAmenityModal, setShowAddAmenityModal] = useState(false);
+  const [newAmenityName, setNewAmenityName] = useState('');
+  const [newAmenityIcon] = useState('Check');
+
+  // --- Rooms Inventory State ---
+  const [roomsOverview, setRoomsOverview] = useState<any>(null);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+
+  // --- Reports & Analytics State ---
+  const [reportsData, setReportsData] = useState<any>(null);
+  const [reportsLoading, setReportsLoading] = useState(false);
+
+  // --- System Settings State ---
+  const [settingsData, setSettingsData] = useState<any>({
+    commissionRate: 10,
+    supportEmail: 'support@cloudbooking.vn',
+    supportPhone: '1900 6868',
+    maintenanceMode: false,
+    announcementText: 'Chào mừng bạn đến với CloudBooking - Hệ thống đặt phòng khách sạn hàng đầu!',
+  });
+  const [settingsLoading, setSettingsLoading] = useState(false);
+
+  // --- System All Hotels Analytics States ---
+  const [systemStatsData, setSystemStatsData] = useState<any>(null);
+  const [systemStatsLoading, setSystemStatsLoading] = useState(false);
+  const [systemTimeRange, setSystemTimeRange] = useState<'all' | 'today' | 'month' | '30days' | 'year'>('all');
+  const [systemCategoryFilter, setSystemCategoryFilter] = useState('ALL');
+  const [systemProvinceFilter, setSystemProvinceFilter] = useState('ALL');
+  const [systemMatrixSearch, setSystemMatrixSearch] = useState('');
+  const [systemSortColumn, setSystemSortColumn] = useState<string>('grossRevenue');
+  const [systemSortOrder, setSystemSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [systemMatrixPage, setSystemMatrixPage] = useState(1);
+
+  const fetchSystemHotelStats = async () => {
+    setSystemStatsLoading(true);
+    try {
+      const res = await apiClient.get('/bookings/system-hotel-stats', {
+        params: {
+          timeRange: systemTimeRange,
+          category: systemCategoryFilter,
+          province: systemProvinceFilter
+        }
+      });
+      setSystemStatsData(res.data.data);
+    } catch (err) {
+      console.error('Lỗi tải thống kê khách sạn hệ thống:', err);
+    } finally {
+      setSystemStatsLoading(false);
+    }
+  };
+
+  const handleExportSystemHotelMatrixCSV = () => {
+    if (!systemStatsData || !systemStatsData.hotelMatrix) return;
+    const rows = [
+      ['STT', 'Ten Khach San', 'Loai Hinh', 'Tinh Thanh', 'So Sao', 'Trang Thai', 'Chu So Huu', 'Tong Hang Phong', 'Tong So Phong', 'Ty Le Lap Day (%)', 'Tong Don Dat', 'Don Hoan Thanh', 'Don Da Huy', 'Doanh Thu Gross (VND)', 'Hoa Hong San (VND)', 'Rating Trung Binh', 'So Danh Gia']
+    ];
+
+    systemStatsData.hotelMatrix.forEach((h: any, idx: number) => {
+      rows.push([
+        (idx + 1).toString(),
+        `"${(h.name || '').replace(/"/g, '""')}"`,
+        `"${h.categoryName || h.propertyType || ''}"`,
+        `"${(h.provinceName || '').replace(/"/g, '""')}"`,
+        h.starRating?.toString() || '0',
+        h.status || '',
+        `"${(h.ownerName || '').replace(/"/g, '""')}"`,
+        h.totalRoomTypes?.toString() || '0',
+        h.totalRooms?.toString() || '0',
+        `${h.occupancyRate || 0}%`,
+        h.totalBookings?.toString() || '0',
+        h.completedBookings?.toString() || '0',
+        h.cancelledBookings?.toString() || '0',
+        h.grossRevenue?.toString() || '0',
+        h.commissionEarned?.toString() || '0',
+        h.averageRating?.toString() || '0',
+        h.reviewCount?.toString() || '0'
+      ]);
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `CloudBooking_ThongKe_TatCa_KhachSan_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    triggerToast('Đã xuất file báo cáo tất cả khách sạn thành công!');
+  };
+
+  const fetchBanners = async () => {
+    setBannersLoading(true);
+    try {
+      const res = await apiClient.get('/cms/banners');
+      setBanners(res.data.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBannersLoading(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      const res = await apiClient.get('/cms/categories');
+      setCategories(res.data.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  const fetchAmenities = async () => {
+    setAmenitiesLoading(true);
+    try {
+      const res = await apiClient.get('/cms/amenities');
+      setAmenities(res.data.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAmenitiesLoading(false);
+    }
+  };
+
+  const fetchRoomsOverview = async () => {
+    setRoomsLoading(true);
+    try {
+      const res = await apiClient.get('/cms/rooms-overview');
+      setRoomsOverview(res.data.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRoomsLoading(false);
+    }
+  };
+
+  const fetchReports = async () => {
+    setReportsLoading(true);
+    try {
+      const res = await apiClient.get('/cms/reports');
+      setReportsData(res.data.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  const fetchSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const res = await apiClient.get('/cms/settings');
+      if (res.data.data) {
+        setSettingsData(res.data.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  // CMS Handlers
+  const handleBannerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingBannerImage(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+      });
+
+      const res = await apiClient.post('/hotels/upload-image', { image: base64 });
+      if (res.data.success) {
+        const uploadedUrl = res.data.data.url;
+        if (isEdit) {
+          setEditingBanner((prev: any) => ({ ...prev, imageUrl: uploadedUrl }));
+        } else {
+          setNewBannerImage(uploadedUrl);
+        }
+        triggerToast('Tải ảnh từ máy tính thành công!');
+      }
+    } catch (err: any) {
+      console.error(err);
+      await showAlert(err.response?.data?.message || 'Lỗi tải ảnh từ máy tính', { type: 'error' });
+    } finally {
+      setUploadingBannerImage(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleCreateBanner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await apiClient.post('/cms/banners', {
+        title: newBannerTitle,
+        imageUrl: newBannerImage,
+        linkUrl: newBannerLink || null,
+        position: newBannerPosition,
+        isActive: true,
+      });
+      // Thêm banner mới vào đầu danh sách để hiển thị ngay lập tức
+      const newBanner = res.data.data || {
+        id: Date.now().toString(),
+        title: newBannerTitle,
+        imageUrl: newBannerImage,
+        linkUrl: newBannerLink || null,
+        position: newBannerPosition,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      };
+      setBanners(prev => [newBanner, ...prev]);
+      triggerToast('Tạo Banner thành công!');
+      setShowAddBannerModal(false);
+      setNewBannerTitle('');
+      setNewBannerImage('');
+      setNewBannerLink('');
+      setNewBannerPosition('HOME_HERO');
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể tạo Banner', { type: 'error' });
+    }
+  };
+
+  const handleToggleBanner = async (id: string) => {
+    try {
+      const res = await apiClient.patch(`/cms/banners/${id}/toggle`);
+      triggerToast(res.data.message || 'Cập nhật trạng thái Banner thành công!');
+      fetchBanners();
+    } catch (err: any) {
+      await showAlert('Không thể thay đổi trạng thái Banner', { type: 'error' });
+    }
+  };
+
+  const handleDeleteBanner = async (id: string) => {
+    const confirmed = await showConfirm('Bạn có chắc chắn muốn xóa Banner này?', { type: 'danger' });
+    if (!confirmed) return;
+    try {
+      await apiClient.delete(`/cms/banners/${id}`);
+      triggerToast('Đã xóa Banner thành công!');
+      fetchBanners();
+    } catch (err: any) {
+      await showAlert('Không thể xóa Banner', { type: 'error' });
+    }
+  };
+
+  const handleOpenEditBanner = (b: any) => {
+    setEditingBanner({ ...b });
+    setShowEditBannerModal(true);
+  };
+
+  const handleUpdateBanner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBanner) return;
+    try {
+      await apiClient.put(`/cms/banners/${editingBanner.id}`, {
+        title: editingBanner.title,
+        imageUrl: editingBanner.imageUrl,
+        linkUrl: editingBanner.linkUrl || null,
+        position: editingBanner.position,
+      });
+      triggerToast('Cập nhật Banner thành công!');
+      setShowEditBannerModal(false);
+      setEditingBanner(null);
+      fetchBanners();
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể cập nhật Banner', { type: 'error' });
+    }
+  };
+
+  const handleOpenEditCategory = (cat: any) => {
+    setEditingCategory({ ...cat });
+    setShowEditCategoryModal(true);
+  };
+
+  const handleUpdateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory) return;
+    try {
+      await apiClient.put(`/cms/categories/${editingCategory.id}`, {
+        name: editingCategory.name,
+        imageUrl: editingCategory.imageUrl || null,
+        description: editingCategory.description || null,
+      });
+      triggerToast('Cập nhật Danh mục thành công!');
+      setShowEditCategoryModal(false);
+      setEditingCategory(null);
+      fetchCategories();
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể cập nhật Danh mục', { type: 'error' });
+    }
+  };
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+
+    e.preventDefault();
+    try {
+      await apiClient.post('/cms/categories', {
+        name: newCatName,
+        description: newCatDesc,
+        imageUrl: newCatImage,
+      });
+      triggerToast('Tạo danh mục khách sạn mới thành công!');
+      setShowAddCategoryModal(false);
+      setNewCatName('');
+      setNewCatDesc('');
+      setNewCatImage('');
+      fetchCategories();
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể tạo danh mục', { type: 'error' });
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    const confirmed = await showConfirm('Xóa danh mục này? Lưu ý: Nếu có khách sạn đang thuộc danh mục này có thể gây lỗi.', { type: 'danger' });
+    if (!confirmed) return;
+    try {
+      await apiClient.delete(`/cms/categories/${id}`);
+      triggerToast('Đã xóa danh mục thành công!');
+      fetchCategories();
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể xóa danh mục', { type: 'error' });
+    }
+  };
+
+  const handleCreateAmenity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.post('/cms/amenities', {
+        name: newAmenityName,
+        icon: newAmenityIcon,
+      });
+      triggerToast('Thêm tiện ích mới thành công!');
+      setShowAddAmenityModal(false);
+      setNewAmenityName('');
+      fetchAmenities();
+    } catch (err: any) {
+      await showAlert(err.response?.data?.message || 'Không thể thêm tiện ích', { type: 'error' });
+    }
+  };
+
+  const handleDeleteAmenity = async (id: string) => {
+    try {
+      await apiClient.delete(`/cms/amenities/${id}`);
+      triggerToast('Đã xóa tiện ích!');
+      fetchAmenities();
+    } catch (err: any) {
+      await showAlert('Không thể xóa tiện ích', { type: 'error' });
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.put('/cms/settings', settingsData);
+      triggerToast('Cập nhật cài đặt hệ thống thành công!');
+    } catch (err: any) {
+      await showAlert('Không thể lưu cài đặt hệ thống', { type: 'error' });
+    }
+  };
+
+  const handleExportReportsCSV = () => {
+    if (!reportsData) return;
+    const csvRows = [
+      ['Tieu de', 'Gia tri'],
+      ['Tong don dat phong', reportsData.summary.totalBookings],
+      ['Tong doanh thu (VND)', reportsData.summary.totalRevenue],
+      ['Phan tram hoa hong (%)', reportsData.summary.commissionRate],
+      ['Tong hoa hong san thu (VND)', reportsData.summary.commissionEarned],
+      ['Giam gia da ap dung (VND)', reportsData.summary.totalDiscount],
+    ];
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.map((e) => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `CloudBooking_BaoCao_TaiChinh_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    triggerToast('Đã tải xuống file báo cáo thành công!');
+  };
+
 
   // --- API Fetch Functions ---
   const fetchHotels = async () => {
@@ -325,11 +741,29 @@ export const AdminDashboard: React.FC = () => {
     if (activeMenu === 'bookings') fetchAllBookings();
     if (activeMenu === 'payment') fetchPayments();
     if (activeMenu === 'reviews') fetchReviews();
+    if (activeMenu === 'cms') {
+      fetchBanners();
+      fetchCategories();
+      fetchAmenities();
+    }
+    if (activeMenu === 'system-hotels-stats') {
+      fetchSystemHotelStats();
+      fetchCategories();
+    }
+    if (activeMenu === 'rooms') fetchRoomsOverview();
+    if (activeMenu === 'reports') fetchReports();
+    if (activeMenu === 'settings') fetchSettings();
     if (activeMenu === 'logs') {
       fetchAiLogs();
       fetchAuditLogs();
     }
   }, [activeMenu]);
+
+  useEffect(() => {
+    if (activeMenu === 'system-hotels-stats') {
+      fetchSystemHotelStats();
+    }
+  }, [systemTimeRange, systemCategoryFilter, systemProvinceFilter]);
 
   // Refetch when filters or search change
   useEffect(() => {
@@ -362,7 +796,13 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Lock body scroll when any modal is open
-  const isAnyAdminModalOpen = Boolean(rejectingHotelId || showAddCoupon || deleteConfirmId);
+  const isAnyAdminModalOpen = Boolean(
+    rejectingHotelId || showAddCoupon || deleteConfirmId || 
+    showAddBannerModal || showEditBannerModal || 
+    showAddCategoryModal || showEditCategoryModal || 
+    showAddAmenityModal
+  );
+
 
   useEffect(() => {
     if (isAnyAdminModalOpen) {
@@ -720,6 +1160,21 @@ export const AdminDashboard: React.FC = () => {
                 >
                   <Hotel className="w-4 h-4 shrink-0" />
                   {!sidebarCollapsed && <span>{language === 'vi' ? 'Khách sạn' : 'Hotels'}</span>}
+                </button>
+
+                <button 
+                  onClick={() => setActiveMenu('system-hotels-stats')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all mt-1 ${
+                    activeMenu === 'system-hotels-stats' ? 'bg-[#2563EB] text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'
+                  }`}
+                >
+                  <Building className="w-4 h-4 shrink-0 text-amber-400" />
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center justify-between w-full">
+                      <span>{language === 'vi' ? 'Thống kê Tất cả KS' : 'All Hotels Stats'}</span>
+                      <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black">PRO</span>
+                    </div>
+                  )}
                 </button>
 
                 <button 
@@ -1201,6 +1656,578 @@ export const AdminDashboard: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+              )}
+
+            </div>
+          )}
+
+          {/* SYSTEM ALL HOTELS STATISTICAL ANALYTICS TAB */}
+          {activeMenu === 'system-hotels-stats' && (
+            <div className="space-y-6">
+              
+              {/* Header & Controls Toolbar */}
+              <div className="bg-gradient-to-r from-[#0F172A] via-[#1E293B] to-[#0F172A] p-6 rounded-3xl text-white shadow-xl relative overflow-hidden">
+                <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+                  <div>
+                    <div className="flex items-center gap-2.5 mb-1.5">
+                      <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black uppercase px-2.5 py-1 rounded-full border border-blue-500/30 tracking-wider">
+                        Realtime System Analytics
+                      </span>
+                      <span className="text-slate-400 text-xs font-semibold">• Tất cả cơ sở lưu trú</span>
+                    </div>
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2">
+                      <Building className="w-7 h-7 text-amber-400" />
+                      Thống Kê Toàn Bộ Hệ Thống Tất Cả Khách Sạn
+                    </h2>
+                    <p className="text-xs text-slate-300 mt-1 max-w-2xl font-medium">
+                      Báo cáo phân tích tổng thể chỉ số kinh doanh, số lượng phòng thực tế, tỷ lệ lấp đầy, doanh thu gross, hoa hồng thu sàn và đánh giá chất lượng của tất cả khách sạn toàn quốc.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <button
+                      onClick={fetchSystemHotelStats}
+                      className="p-2.5 bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 backdrop-blur-md"
+                      title="Làm mới dữ liệu"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${systemStatsLoading ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">Làm mới</span>
+                    </button>
+
+                    <button
+                      onClick={handleExportSystemHotelMatrixCSV}
+                      className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-1.5"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Xuất Báo Cáo CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Selector Bar */}
+                <div className="mt-6 pt-5 border-t border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-3 relative z-10">
+                  {/* Time Range */}
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
+                      Khung thời gian
+                    </label>
+                    <select
+                      value={systemTimeRange}
+                      onChange={(e: any) => setSystemTimeRange(e.target.value)}
+                      className="w-full bg-slate-800/80 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-blue-500 transition-all cursor-pointer"
+                    >
+                      <option value="all">Toàn thời gian (All-Time)</option>
+                      <option value="today">Hôm nay (Today)</option>
+                      <option value="month">Tháng này (This Month)</option>
+                      <option value="30days">30 ngày qua (Last 30 Days)</option>
+                      <option value="year">Năm nay (This Year)</option>
+                    </select>
+                  </div>
+
+                  {/* Property Type Category */}
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
+                      Loại hình dịch vụ
+                    </label>
+                    <select
+                      value={systemCategoryFilter}
+                      onChange={(e) => setSystemCategoryFilter(e.target.value)}
+                      className="w-full bg-slate-800/80 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-blue-500 transition-all cursor-pointer"
+                    >
+                      <option value="ALL">Tất cả loại hình (All Property Types)</option>
+                      {categories.map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Province Filter */}
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider block mb-1.5">
+                      Tỉnh / Thành phố
+                    </label>
+                    <select
+                      value={systemProvinceFilter}
+                      onChange={(e) => setSystemProvinceFilter(e.target.value)}
+                      className="w-full bg-slate-800/80 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-blue-500 transition-all cursor-pointer"
+                    >
+                      <option value="ALL">Tất cả Tỉnh/Thành (All Provinces)</option>
+                      {systemStatsData?.provinceStats?.map((p: any) => (
+                        <option key={p.name} value={p.name}>{p.name} ({p.hotelCount} KS)</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Loading State */}
+              {systemStatsLoading && !systemStatsData && (
+                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200">
+                  <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto mb-3" />
+                  <p className="text-xs font-bold text-slate-500">Đang tổng hợp dữ liệu thống kê tất cả khách sạn...</p>
+                </div>
+              )}
+
+              {systemStatsData && (
+                <>
+                  {/* 4 SUMMARY METRIC CARDS */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    
+                    {/* CARD 1: Total Hotels */}
+                    <div className="p-5 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-blue-300 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-[#64748B] uppercase tracking-wider block">Cơ Sở Lưu Trú</span>
+                          <p className="text-3xl font-black text-[#0F172A] mt-1">{systemStatsData.summary.totalHotels}</p>
+                        </div>
+                        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl group-hover:scale-110 transition-transform">
+                          <Hotel className="w-6 h-6" />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-1.5 pt-3 border-t border-slate-100 text-[10px] font-bold">
+                        <div className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                          <CheckCircle className="w-3 h-3" /> {systemStatsData.summary.approvedHotels} Đã duyệt
+                        </div>
+                        <div className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">
+                          <Info className="w-3 h-3" /> {systemStatsData.summary.pendingHotels} Chờ duyệt
+                        </div>
+                        <div className="flex items-center gap-1 text-rose-600 bg-rose-50 px-2 py-1 rounded-lg">
+                          <XCircle className="w-3 h-3" /> {systemStatsData.summary.rejectedHotels} Từ chối
+                        </div>
+                        <div className="flex items-center gap-1 text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
+                          <Sliders className="w-3 h-3" /> {systemStatsData.summary.suspendedHotels} Tạm dừng
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CARD 2: Revenue & Commission */}
+                    <div className="p-5 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-emerald-300 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-[#64748B] uppercase tracking-wider block">Doanh Thu Gross System</span>
+                          <p className="text-2xl font-black text-emerald-600 mt-1">
+                            {systemStatsData.summary.totalRevenue?.toLocaleString('vi-VN')} <span className="text-xs">đ</span>
+                          </p>
+                        </div>
+                        <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl group-hover:scale-110 transition-transform">
+                          <DollarSign className="w-6 h-6" />
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-50/70 border border-emerald-100 p-2.5 rounded-xl flex items-center justify-between text-[11px] font-bold text-emerald-800">
+                        <span>Hoa hồng sàn ({systemStatsData.summary.commissionRate}%):</span>
+                        <span className="font-black text-emerald-700">
+                          {systemStatsData.summary.totalCommission?.toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* CARD 3: Room Inventory & Occupancy */}
+                    <div className="p-5 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-indigo-300 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-[#64748B] uppercase tracking-wider block">Quy Mô & Công Suất Phòng</span>
+                          <p className="text-3xl font-black text-[#0F172A] mt-1">{systemStatsData.summary.totalRooms} <span className="text-xs font-bold text-slate-500">phòng</span></p>
+                        </div>
+                        <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl group-hover:scale-110 transition-transform">
+                          <Bed className="w-6 h-6" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-2">
+                        <div className="flex justify-between text-[11px] font-bold text-slate-700">
+                          <span>Tỷ lệ lấp đầy:</span>
+                          <span className="font-black text-indigo-600">{systemStatsData.summary.systemOccupancyRate}%</span>
+                        </div>
+                        <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-indigo-500 to-blue-600 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.min(100, systemStatsData.summary.systemOccupancyRate)}%` }}
+                          ></div>
+                        </div>
+                        <p className="text-[10px] font-semibold text-slate-400">
+                          {systemStatsData.summary.occupiedRooms} / {systemStatsData.summary.totalRooms} phòng đang có khách ở
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* CARD 4: Bookings & Satisfaction Rating */}
+                    <div className="p-5 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-amber-300 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-[#64748B] uppercase tracking-wider block">Đơn Đặt & Đánh Giá</span>
+                          <p className="text-3xl font-black text-[#0F172A] mt-1">{systemStatsData.summary.totalBookings} <span className="text-xs font-bold text-slate-500">lượt đặt</span></p>
+                        </div>
+                        <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl group-hover:scale-110 transition-transform">
+                          <Star className="w-6 h-6" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 pt-2 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-xl text-amber-700 font-black text-xs">
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                            <span>{systemStatsData.summary.systemAverageRating} / 10.0</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-500">Thang 10 điểm</span>
+                        </div>
+                        <p className="text-[10px] font-semibold text-slate-400">
+                          Dựa trên {systemStatsData.summary.totalReviews || 0} lượt đánh giá thực tế
+                        </p>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* CHARTS SECTION ROW 1 */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Chart 1: Revenue & Commission by Property Type (2 cols) */}
+                    <div className="lg:col-span-2 p-6 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-3xl">
+                      <div className="flex justify-between items-center mb-6">
+                        <div>
+                          <h3 className="font-extrabold text-sm text-[#0F172A] uppercase tracking-wide flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-blue-600" />
+                            Doanh Thu & Hoa Hồng Theo Loại Hình Dịch Vụ
+                          </h3>
+                          <p className="text-[11px] text-slate-400 font-semibold mt-0.5">So sánh doanh thu Gross và tiền hoa hồng 10% sàn thu từ từng loại hình lưu trú</p>
+                        </div>
+                      </div>
+
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={systemStatsData.propertyTypeStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#2563EB" stopOpacity={0.4}/>
+                                <stop offset="95%" stopColor="#2563EB" stopOpacity={0}/>
+                              </linearGradient>
+                              <linearGradient id="colorCommission" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                                <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 600, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 10, fontWeight: 600, fill: '#64748B' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${(val / 1000000).toFixed(0)}M`} />
+                            <Tooltip 
+                              formatter={(value: any) => [`${Number(value).toLocaleString('vi-VN')} VNĐ`, '']}
+                              contentStyle={{ backgroundColor: '#0F172A', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                            />
+                            <Area type="monotone" dataKey="revenue" name="Doanh thu Gross" stroke="#2563EB" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                            <Area type="monotone" dataKey="commission" name="Hoa hồng Sàn" stroke="#10B981" strokeWidth={2} fillOpacity={1} fill="url(#colorCommission)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Chart 2: Housekeeping & Room Status Distribution (1 col) */}
+                    <div className="p-6 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-3xl flex flex-col justify-between">
+                      <div>
+                        <h3 className="font-extrabold text-sm text-[#0F172A] uppercase tracking-wide flex items-center gap-2 mb-1">
+                          <Bed className="w-4 h-4 text-emerald-600" />
+                          Trạng Thái Buồng Phòng Toàn Hệ Thống
+                        </h3>
+                        <p className="text-[11px] text-slate-400 font-semibold mb-4">Phân bổ trạng thái quản lý buồng phòng trên tất cả khách sạn</p>
+
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-2xl">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                              <span className="text-xs font-bold text-slate-700">Phòng Sạch (Clean)</span>
+                            </div>
+                            <span className="text-xs font-black text-emerald-700">{systemStatsData.housekeepingStats?.CLEAN || 0} phòng</span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-2xl">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                              <span className="text-xs font-bold text-slate-700">Đang Khách Ở (In Use)</span>
+                            </div>
+                            <span className="text-xs font-black text-blue-700">{systemStatsData.housekeepingStats?.IN_USE || 0} phòng</span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-amber-50 rounded-2xl">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                              <span className="text-xs font-bold text-slate-700">Phòng Dơ / Chờ Dọn (Dirty)</span>
+                            </div>
+                            <span className="text-xs font-black text-amber-700">{systemStatsData.housekeepingStats?.DIRTY || 0} phòng</span>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 bg-rose-50 rounded-2xl">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-3 h-3 rounded-full bg-rose-500"></div>
+                              <span className="text-xs font-bold text-slate-700">Đang Bảo Trì (Maintenance)</span>
+                            </div>
+                            <span className="text-xs font-black text-rose-700">{systemStatsData.housekeepingStats?.MAINTENANCE || 0} phòng</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                        <span>Tổng số phòng quản lý:</span>
+                        <span className="font-black text-slate-900">{systemStatsData.summary.totalRooms} phòng</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* CHARTS SECTION ROW 2: PROVINCE HEATMAP & LEADERBOARD */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    
+                    {/* Top Provinces */}
+                    <div className="p-6 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-3xl">
+                      <h3 className="font-extrabold text-sm text-[#0F172A] uppercase tracking-wide flex items-center gap-2 mb-1">
+                        <Globe className="w-4 h-4 text-indigo-600" />
+                        Top Địa Phương Có Nhiều Khách Sạn & Doanh Thu Cao
+                      </h3>
+                      <p className="text-[11px] text-slate-400 font-semibold mb-4">Danh sách các Tỉnh/Thành phố dẫn đầu về quy mô khách sạn và đặt phòng</p>
+
+                      <div className="space-y-3">
+                        {systemStatsData.provinceStats?.map((p: any, idx: number) => (
+                          <div key={p.name} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl transition-all">
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 font-black text-xs flex items-center justify-center">
+                                #{idx + 1}
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-black text-slate-800">{p.name}</h4>
+                                <span className="text-[10px] font-bold text-slate-400">{p.hotelCount} cơ sở lưu trú • {p.bookingCount} lượt đặt</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs font-black text-indigo-600 block">{p.revenue?.toLocaleString('vi-VN')} đ</span>
+                              <span className="text-[9px] font-bold text-slate-400">Gross revenue</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top 10 Hotels Leaderboard */}
+                    <div className="p-6 bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-3xl">
+                      <h3 className="font-extrabold text-sm text-[#0F172A] uppercase tracking-wide flex items-center gap-2 mb-1">
+                        <Sparkles className="w-4 h-4 text-amber-500" />
+                        Top 10 Khách Sạn Doanh Thu Cao Nhất Hệ Thống
+                      </h3>
+                      <p className="text-[11px] text-slate-400 font-semibold mb-4">Bảng xếp hạng những khách sạn kinh doanh xuất sắc nhất</p>
+
+                      <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                        {systemStatsData.topHotels?.map((h: any, idx: number) => (
+                          <div key={h.id} className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50/50 to-white border border-amber-100 rounded-2xl">
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 rounded-xl bg-amber-400 text-white font-black text-xs flex items-center justify-center shadow-sm">
+                                {idx + 1}
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-black text-slate-900 line-clamp-1">{h.name}</h4>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] font-bold text-slate-500">{h.provinceName} • {h.starRating} sao</span>
+                                  <span className="text-[10px] font-black text-amber-600 flex items-center gap-0.5">
+                                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" /> {h.averageRating > 0 ? `${h.averageRating} / 10` : 'Chưa có'} ({h.reviewCount} review)
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-xs font-black text-emerald-600 block">{h.grossRevenue?.toLocaleString('vi-VN')} đ</span>
+                              <span className="text-[9px] font-bold text-blue-600">Hoa hồng: {h.commissionEarned?.toLocaleString('vi-VN')} đ</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* MATRIX TABLE OF ALL HOTELS IN THE SYSTEM */}
+                  <div className="bg-white border border-[#E2E8F0] shadow-[0_4px_12px_rgba(15,23,42,0.04)] rounded-3xl p-6 space-y-4">
+                    
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                      <div>
+                        <h3 className="font-extrabold text-base text-[#0F172A] uppercase tracking-wide flex items-center gap-2">
+                          <Building className="w-5 h-5 text-blue-600" />
+                          Ma Trận Dữ Liệu Hiệu Năng Tất Cả Khách Sạn ({systemStatsData.hotelMatrix?.length || 0})
+                        </h3>
+                        <p className="text-xs text-slate-400 font-semibold mt-0.5">Bảng chi tiết thông tin, chỉ số buồng phòng, đơn hàng, doanh thu và điểm đánh giá của toàn bộ khách sạn.</p>
+                      </div>
+
+                      {/* Search box within matrix table */}
+                      <div className="w-72 relative">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Tìm khách sạn, chủ sở hữu, tỉnh thành..."
+                          value={systemMatrixSearch}
+                          onChange={(e) => setSystemMatrixSearch(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl pl-9 pr-4 py-2 outline-none focus:border-blue-500 focus:bg-white transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Table View */}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full text-left text-xs font-semibold text-slate-700">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase font-extrabold text-slate-500 tracking-wider">
+                          <tr>
+                            <th className="px-4 py-3">STT</th>
+                            <th className="px-4 py-3">Khách sạn & Vị trí</th>
+                            <th className="px-4 py-3">Chủ sở hữu</th>
+                            <th className="px-4 py-3">Quy mô phòng</th>
+                            <th className="px-4 py-3">Tỷ lệ Lấp Đầy</th>
+                            <th className="px-4 py-3">Lượt Đặt Phòng</th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                              onClick={() => {
+                                setSystemSortColumn('grossRevenue');
+                                setSystemSortOrder(systemSortOrder === 'asc' ? 'desc' : 'asc');
+                              }}
+                            >
+                              Doanh Thu Gross / Hoa Hồng ↕
+                            </th>
+                            <th 
+                              className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                              onClick={() => {
+                                setSystemSortColumn('averageRating');
+                                setSystemSortOrder(systemSortOrder === 'asc' ? 'desc' : 'asc');
+                              }}
+                            >
+                              Đánh giá (Thang 10) ↕
+                            </th>
+                            <th className="px-4 py-3 text-center">Trạng thái</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {systemStatsData.hotelMatrix
+                            ?.filter((h: any) => {
+                              if (!systemMatrixSearch) return true;
+                              const q = systemMatrixSearch.toLowerCase();
+                              return (
+                                h.name?.toLowerCase().includes(q) ||
+                                h.ownerName?.toLowerCase().includes(q) ||
+                                h.provinceName?.toLowerCase().includes(q) ||
+                                h.categoryName?.toLowerCase().includes(q)
+                              );
+                            })
+                            ?.sort((a: any, b: any) => {
+                              const valA = a[systemSortColumn] || 0;
+                              const valB = b[systemSortColumn] || 0;
+                              if (systemSortOrder === 'asc') return valA > valB ? 1 : -1;
+                              return valA < valB ? 1 : -1;
+                            })
+                            ?.slice((systemMatrixPage - 1) * 10, systemMatrixPage * 10)
+                            ?.map((h: any, idx: number) => (
+                              <tr key={h.id} className="hover:bg-blue-50/40 transition-colors">
+                                <td className="px-4 py-3 font-bold text-slate-400">
+                                  {(systemMatrixPage - 1) * 10 + idx + 1}
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="font-extrabold text-slate-900 text-xs">{h.name}</div>
+                                  <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 mt-0.5">
+                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded font-bold text-slate-600">{h.categoryName}</span>
+                                    <span>• {h.provinceName} • {h.starRating} sao</span>
+                                  </div>
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="font-bold text-slate-800">{h.ownerName}</div>
+                                  <div className="text-[10px] text-slate-400 font-semibold">{h.ownerEmail}</div>
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="font-extrabold text-slate-900">{h.totalRooms} phòng</div>
+                                  <div className="text-[10px] font-semibold text-slate-400">{h.totalRoomTypes} hạng phòng</div>
+                                </td>
+
+                                <td className="px-4 py-3 min-w-[130px]">
+                                  <div className="flex items-center justify-between text-[10px] font-black text-indigo-700 mb-1">
+                                    <span>{h.occupancyRate}%</span>
+                                    <span className="text-slate-400 font-normal">{h.inUseRooms}/{h.totalRooms} in-use</span>
+                                  </div>
+                                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-indigo-600 rounded-full"
+                                      style={{ width: `${Math.min(100, h.occupancyRate)}%` }}
+                                    ></div>
+                                  </div>
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="font-extrabold text-slate-900">{h.totalBookings} đơn</div>
+                                  <div className="text-[10px] text-emerald-600 font-bold">{h.completedBookings} thành công</div>
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="font-extrabold text-emerald-600">{h.grossRevenue?.toLocaleString('vi-VN')} đ</div>
+                                  <div className="text-[10px] font-bold text-blue-600">HH: {h.commissionEarned?.toLocaleString('vi-VN')} đ</div>
+                                </td>
+
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1 font-black text-amber-600 text-xs">
+                                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                                    <span>{h.averageRating > 0 ? `${h.averageRating} / 10` : 'Chưa có'}</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-semibold">{h.reviewCount} lượt đánh giá</div>
+                                </td>
+
+                                <td className="px-4 py-3 text-center">
+                                  {h.status === 'APPROVED' && (
+                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                      Hoạt động
+                                    </span>
+                                  )}
+                                  {h.status === 'PENDING' && (
+                                    <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                      Chờ duyệt
+                                    </span>
+                                  )}
+                                  {h.status === 'REJECTED' && (
+                                    <span className="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                      Từ chối
+                                    </span>
+                                  )}
+                                  {h.status === 'SUSPENDED' && (
+                                    <span className="bg-slate-100 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-full text-[10px] font-black inline-block">
+                                      Tạm dừng
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div className="flex items-center justify-between pt-2">
+                      <p className="text-xs font-semibold text-slate-400">
+                        Hiển thị trang {systemMatrixPage} trên tổng số {Math.ceil((systemStatsData.hotelMatrix?.length || 1) / 10)} trang
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          disabled={systemMatrixPage <= 1}
+                          onClick={() => setSystemMatrixPage(prev => Math.max(1, prev - 1))}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Trang trước
+                        </button>
+                        <button
+                          disabled={systemMatrixPage * 10 >= (systemStatsData.hotelMatrix?.length || 0)}
+                          onClick={() => setSystemMatrixPage(prev => prev + 1)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          Trang sau
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+                </>
               )}
 
             </div>
@@ -1703,18 +2730,470 @@ export const AdminDashboard: React.FC = () => {
               </div>
             )}
 
-            {/* OTHER MOCKED TABS FOR COMPLETE WORKFLOW PREVIEW */}
-            {['rooms', 'cms', 'reports', 'settings'].includes(activeMenu) && (
-            <div className="p-8 border border-dashed border-[#CBD5E1] rounded-2xl text-center space-y-3 bg-white shadow-sm">
-              <Sliders className="w-12 h-12 text-[#2563EB] mx-auto animate-pulse" />
-              <h3 className="text-sm font-bold uppercase text-[#1E293B]">
-                Giao diện quản lý {activeMenu} đang được thiết lập kết nối
-              </h3>
-              <p className="text-xs text-[#64748B] max-w-sm mx-auto leading-relaxed">
-                Bản nâng cấp full-width UI của tab này đã sẵn sàng. Giao diện CRUD chuẩn và các trường dữ liệu hiển thị đã sẵn sàng liên kết với các thực thể trong Prisma.
-              </p>
-            </div>
-          )}
+            {/* 10. CMS MANAGEMENT (Banners, Categories, Amenities) */}
+            {activeMenu === 'cms' && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-[#E2E8F0]">
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[#1E293B] uppercase">Quản lý Nội dung CMS & Banner toàn sàn</h3>
+                    <p className="text-xs text-[#64748B]">Quản trị Banner quảng cáo, Danh mục loại hình lưu trú và Danh mục tiện ích hệ thống</p>
+                  </div>
+
+                  {/* Sub-tab switcher */}
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      onClick={() => setCmsSubTab('banners')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        cmsSubTab === 'banners' ? 'bg-white text-[#2563EB] shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Banner Quảng cáo ({banners.length})
+                    </button>
+                    <button
+                      onClick={() => setCmsSubTab('categories')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        cmsSubTab === 'categories' ? 'bg-white text-[#2563EB] shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Danh mục ({categories.length})
+                    </button>
+                    <button
+                      onClick={() => setCmsSubTab('amenities')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        cmsSubTab === 'amenities' ? 'bg-white text-[#2563EB] shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Tiện ích ({amenities.length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sub Tab 1: Banners */}
+                {cmsSubTab === 'banners' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Danh sách Banner đang thiết lập</span>
+                      <button
+                        onClick={() => setShowAddBannerModal(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Thêm Banner mới</span>
+                      </button>
+                    </div>
+
+                    {bannersLoading ? (
+                      <div className="h-48 bg-slate-100 animate-pulse rounded-2xl"></div>
+                    ) : banners.length === 0 ? (
+                      <div className="p-8 border border-dashed border-slate-200 rounded-2xl text-center text-xs font-semibold text-slate-500 bg-white">
+                        Chưa có Banner nào được tạo. Hãy nhấn "Thêm Banner mới" để bắt đầu!
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {banners.map((b) => (
+                          <div key={b.id} className="bg-white border border-[#E2E8F0] rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+                            <div>
+                              <div className="h-36 bg-slate-100 relative">
+                                <img src={b.imageUrl} alt={b.title} className="w-full h-full object-cover" />
+                                <span className={`absolute top-2 right-2 text-[9px] font-black px-2 py-0.5 rounded-full uppercase border shadow-sm ${
+                                  b.isActive ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-slate-700 text-slate-200 border-slate-800'
+                                }`}>
+                                  {b.isActive ? 'Đang hiện' : 'Đã ẩn'}
+                                </span>
+                                <span className="absolute bottom-2 left-2 text-[9px] font-extrabold px-2 py-0.5 rounded-md bg-slate-900/80 text-white backdrop-blur-sm">
+                                  {b.position}
+                                </span>
+                              </div>
+                              <div className="p-3.5 space-y-1">
+                                <h4 className="font-extrabold text-xs text-[#1E293B] line-clamp-1">{b.title}</h4>
+                                {b.linkUrl && (
+                                  <a href={b.linkUrl} target="_blank" rel="noreferrer" className="text-[10px] text-[#2563EB] hover:underline font-semibold block truncate">
+                                    {b.linkUrl}
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                            <div className="px-3.5 py-2.5 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                              <button
+                                onClick={() => handleToggleBanner(b.id)}
+                                className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border transition-colors ${
+                                  b.isActive ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                                }`}
+                              >
+                                {b.isActive ? 'Ẩn Banner' : 'Hiển thị'}
+                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleOpenEditBanner(b)}
+                                  className="p-1.5 rounded-lg text-slate-500 hover:text-[#2563EB] hover:bg-slate-100 transition-colors"
+                                  title="Chỉnh sửa Banner"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteBanner(b.id)}
+                                  className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition-colors"
+                                  title="Xóa Banner"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub Tab 2: Categories */}
+                {cmsSubTab === 'categories' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Danh mục loại hình lưu trú (6 loại hình chuẩn hệ thống)</span>
+                      <button
+                        onClick={() => setShowAddCategoryModal(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Thêm danh mục mới</span>
+                      </button>
+                    </div>
+
+                    {categoriesLoading ? (
+                      <div className="h-48 bg-slate-100 animate-pulse rounded-2xl"></div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {categories.map((cat) => (
+                          <div key={cat.id} className="p-4 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-12 h-12 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex shrink-0 items-center justify-center font-black text-slate-400">
+                                {cat.imageUrl ? (
+                                  <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  cat.name.charAt(0)
+                                )}
+                              </div>
+                              <div className="truncate">
+                                <h4 className="font-extrabold text-xs text-[#1E293B] truncate">{cat.name}</h4>
+                                <p className="text-[10px] text-[#64748B] mt-0.5">{cat.hotelsCount || cat._count?.hotels || 0} khách sạn thuộc loại hình này</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => handleOpenEditCategory(cat)}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-[#2563EB] hover:bg-slate-100 transition-colors"
+                                title="Chỉnh sửa Danh mục"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                                title="Xóa Danh mục"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                  </div>
+                )}
+
+                {/* Sub Tab 3: Amenities */}
+                {cmsSubTab === 'amenities' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Danh mục tiện ích chuẩn sàn</span>
+                      <button
+                        onClick={() => setShowAddAmenityModal(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Thêm tiện ích mới</span>
+                      </button>
+                    </div>
+
+                    {amenitiesLoading ? (
+                      <div className="h-48 bg-slate-100 animate-pulse rounded-2xl"></div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                        {amenities.map((am) => (
+                          <div key={am.id} className="p-3 bg-white border border-[#E2E8F0] rounded-xl shadow-sm flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <CheckSquare className="w-4 h-4 text-[#2563EB]" />
+                              <span className="text-xs font-extrabold text-[#1E293B]">{am.name}</span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteAmenity(am.id)}
+                              className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 11. ROOMS & INVENTORY MATRIX */}
+            {activeMenu === 'rooms' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center pb-3 border-b border-[#E2E8F0]">
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[#1E293B] uppercase">Quản lý Phòng & Trạng thái dọn dẹp</h3>
+                    <p className="text-xs text-[#64748B]">Theo dõi toàn bộ phòng thực tế, ma trận dọn dẹp và các loại phòng thuộc hệ thống</p>
+                  </div>
+                  <button onClick={fetchRoomsOverview} className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors">
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {roomsLoading || !roomsOverview ? (
+                  <div className="h-64 bg-slate-100 animate-pulse rounded-2xl"></div>
+                ) : (
+                  <>
+                    {/* Matrix Status Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      <div className="p-4 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Loại phòng</span>
+                        <p className="text-xl font-black text-[#1E293B]">{roomsOverview.stats.totalRoomTypes}</p>
+                      </div>
+                      <div className="p-4 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-400">Tổng phòng</span>
+                        <p className="text-xl font-black text-[#2563EB]">{roomsOverview.stats.totalRooms}</p>
+                      </div>
+                      <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-emerald-600">Phòng Sạch</span>
+                        <p className="text-xl font-black text-emerald-600">{roomsOverview.stats.cleanRooms}</p>
+                      </div>
+                      <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-amber-600">Phòng bẩn / Cần dọn</span>
+                        <p className="text-xl font-black text-amber-600">{roomsOverview.stats.dirtyRooms}</p>
+                      </div>
+                      <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-blue-600">Đang có khách</span>
+                        <p className="text-xl font-black text-blue-600">{roomsOverview.stats.inUseRooms}</p>
+                      </div>
+                      <div className="p-4 bg-rose-50/50 border border-rose-100 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold uppercase text-rose-600">Bảo trì</span>
+                        <p className="text-xl font-black text-rose-600">{roomsOverview.stats.maintenanceRooms}</p>
+                      </div>
+                    </div>
+
+                    {/* Room types inventory table */}
+                    <div className="bg-white border border-[#E2E8F0] rounded-2xl overflow-hidden shadow-sm">
+                      <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <h4 className="font-extrabold text-xs text-[#1E293B] uppercase">Danh sách loại phòng tiêu biểu</h4>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-[#E2E8F0] text-xs font-semibold text-[#64748B] text-left">
+                          <thead className="bg-[#F8FAFC] text-[10px] uppercase font-black tracking-wider text-[#475569]">
+                            <tr>
+                              <th className="px-4 py-3">Khách sạn sở hữu</th>
+                              <th className="px-4 py-3">Tên loại phòng</th>
+                              <th className="px-4 py-3 text-center">Sức chứa</th>
+                              <th className="px-4 py-3 text-center">Số giường</th>
+                              <th className="px-4 py-3 text-right">Giá niêm yết</th>
+                              <th className="px-4 py-3 text-center">Tổng số phòng</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {roomsOverview.roomTypes.map((rt: any) => (
+                              <tr key={rt.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="px-4 py-3 font-extrabold text-[#1E293B]">{rt.hotelName}</td>
+                                <td className="px-4 py-3 text-[#2563EB] font-bold">{rt.name}</td>
+                                <td className="px-4 py-3 text-center">{rt.capacity} Khách</td>
+                                <td className="px-4 py-3 text-center">{rt.bedCount} Giường</td>
+                                <td className="px-4 py-3 text-right font-black text-[#0F172A]">{rt.basePrice.toLocaleString('vi-VN')} VNĐ</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="px-2.5 py-0.5 bg-slate-100 text-slate-800 font-extrabold rounded-lg text-[10px]">
+                                    {rt.roomCount} phòng
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* 12. FINANCIAL REPORTS & ANALYTICS */}
+            {activeMenu === 'reports' && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-[#E2E8F0]">
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[#1E293B] uppercase">Báo cáo Tài chính & Doanh thu sàn</h3>
+                    <p className="text-xs text-[#64748B]">Tổng hợp số liệu doanh số đặt phòng, hoa hồng chiết khấu thu được và xuất file báo cáo</p>
+                  </div>
+                  <button
+                    onClick={handleExportReportsCSV}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold transition-all shadow-md self-start"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Xuất báo cáo (CSV)</span>
+                  </button>
+                </div>
+
+                {reportsLoading || !reportsData ? (
+                  <div className="h-64 bg-slate-100 animate-pulse rounded-2xl"></div>
+                ) : (
+                  <>
+                    {/* Financial Summary Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="p-5 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Tổng doanh số toàn sàn</span>
+                        <p className="text-2xl font-black text-[#0F172A]">
+                          {reportsData.summary.totalRevenue.toLocaleString('vi-VN')} VNĐ
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-semibold">{reportsData.summary.totalBookings} đơn đặt phòng thành công</p>
+                      </div>
+
+                      <div className="p-5 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl shadow-md space-y-1">
+                        <span className="text-[10px] font-black uppercase text-blue-200">Hoa hồng sàn thu được</span>
+                        <p className="text-2xl font-black">
+                          {reportsData.summary.commissionEarned.toLocaleString('vi-VN')} VNĐ
+                        </p>
+                        <p className="text-[10px] text-blue-100 font-semibold">Áp dụng tỉ lệ chiết khấu {reportsData.summary.commissionRate}%</p>
+                      </div>
+
+                      <div className="p-5 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Tổng tiền giảm giá cấp</span>
+                        <p className="text-2xl font-black text-rose-500">
+                          {reportsData.summary.totalDiscount.toLocaleString('vi-VN')} VNĐ
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-semibold">Tất cả Voucher & Coupon</p>
+                      </div>
+
+                      <div className="p-5 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Đơn giá trung bình / đơn</span>
+                        <p className="text-2xl font-black text-[#2563EB]">
+                          {reportsData.summary.totalBookings > 0
+                            ? Math.round(reportsData.summary.totalRevenue / reportsData.summary.totalBookings).toLocaleString('vi-VN')
+                            : 0} VNĐ
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-semibold">Giá trị đơn phòng trung bình</p>
+                      </div>
+                    </div>
+
+                    {/* Payment methods breakdown */}
+                    <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm space-y-4">
+                      <h4 className="font-extrabold text-xs text-[#1E293B] uppercase">Cơ cấu doanh thu theo cổng thanh toán</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        {Object.entries(reportsData.paymentMethodStats || {}).map(([method, amount]: [string, any]) => (
+                          <div key={method} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+                            <span className="text-[10px] font-black text-slate-400 uppercase">{method}</span>
+                            <p className="text-sm font-extrabold text-[#1E293B] mt-0.5">{amount.toLocaleString('vi-VN')} VNĐ</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* 13. PLATFORM SYSTEM SETTINGS */}
+            {activeMenu === 'settings' && (
+              <div className="space-y-6 max-w-4xl">
+                <div className="pb-3 border-b border-[#E2E8F0]">
+                  <h3 className="font-extrabold text-sm text-[#1E293B] uppercase">Thiết lập & Cấu hình toàn hệ thống</h3>
+                  <p className="text-xs text-[#64748B]">Điều chỉnh thông số tỉ lệ hoa hồng, thông tin chăm sóc khách hàng và chế độ bảo trì sàn</p>
+                </div>
+
+                {settingsLoading ? (
+                  <div className="h-64 bg-slate-100 animate-pulse rounded-2xl"></div>
+                ) : (
+                  <form onSubmit={handleSaveSettings} className="bg-white border border-[#E2E8F0] rounded-2xl p-6 shadow-sm space-y-5">
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-[#1E293B] uppercase">Phần trăm hoa hồng sàn (%)</label>
+                        <input
+                          type="number"
+                          value={settingsData.commissionRate}
+                          onChange={(e) => setSettingsData({ ...settingsData, commissionRate: Number(e.target.value) })}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-extrabold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:bg-white"
+                          required
+                        />
+                        <span className="text-[10px] text-slate-400">Tỉ lệ chiết khấu thu từ các đối tác khách sạn</span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-[#1E293B] uppercase">Hotline hỗ trợ tổng đài</label>
+                        <input
+                          type="text"
+                          value={settingsData.supportPhone}
+                          onChange={(e) => setSettingsData({ ...settingsData, supportPhone: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-extrabold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:bg-white"
+                          required
+                        />
+                        <span className="text-[10px] text-slate-400">Hiển thị ở footer và trang liên hệ</span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-[#1E293B] uppercase">Email chăm sóc khách hàng</label>
+                        <input
+                          type="email"
+                          value={settingsData.supportEmail}
+                          onChange={(e) => setSettingsData({ ...settingsData, supportEmail: e.target.value })}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-extrabold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:bg-white"
+                          required
+                        />
+                        <span className="text-[10px] text-slate-400">Email gửi thông báo xác nhận tự động</span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black text-[#1E293B] uppercase">Chế độ bảo trì hệ thống</label>
+                        <div className="flex items-center gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setSettingsData({ ...settingsData, maintenanceMode: !settingsData.maintenanceMode })}
+                            className={`px-4 py-2 rounded-xl text-xs font-black transition-colors ${
+                              settingsData.maintenanceMode ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {settingsData.maintenanceMode ? 'Đang bật bảo trì' : 'Bình thường (Đang chạy)'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black text-[#1E293B] uppercase">Thông báo chạy nổi toàn trang</label>
+                      <textarea
+                        rows={2}
+                        value={settingsData.announcementText}
+                        onChange={(e) => setSettingsData({ ...settingsData, announcementText: e.target.value })}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:bg-white"
+                      />
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex justify-end">
+                      <button
+                        type="submit"
+                        className="flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold transition-all shadow-md"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>Lưu thay đổi cài đặt</span>
+                      </button>
+                    </div>
+
+                  </form>
+                )}
+              </div>
+            )}
+
 
         </main>
       </div>
@@ -1960,6 +3439,401 @@ export const AdminDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ADD BANNER MODAL - Nâng cấp với preview ảnh và UI đẹp như modal coupon */}
+      {showAddBannerModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateBanner}
+            className="bg-white border border-[#E2E8F0] p-6 rounded-3xl shadow-2xl w-full max-w-2xl text-[#1E293B] animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-[#E2E8F0] pb-4 shrink-0">
+              <div>
+                <h3 className="font-extrabold text-[#0F172A] text-base">Thêm Banner Quảng Cáo Mới</h3>
+                <p className="text-[10px] text-[#64748B] font-semibold mt-0.5">Điền đầy đủ thông tin để đăng banner lên hệ thống</p>
+              </div>
+              <span className="text-2xl">🖼️</span>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1 pt-4">
+
+              {/* Preview ảnh real-time */}
+              {newBannerImage && (
+                <div className="relative w-full h-40 rounded-2xl overflow-hidden border-2 border-dashed border-[#2563EB]/40 bg-slate-50">
+                  <img
+                    src={newBannerImage}
+                    alt="Preview Banner"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                  <div className="absolute inset-0 flex items-end p-2 bg-gradient-to-t from-black/50 to-transparent">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-md bg-slate-900/80 text-white backdrop-blur-sm">
+                        {newBannerPosition}
+                      </span>
+                      <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500 text-white">
+                        Đang hiện
+                      </span>
+                    </div>
+                  </div>
+                  <span className="absolute top-2 right-2 text-[9px] bg-blue-600 text-white px-2 py-0.5 rounded-md font-bold">Xem trước</span>
+                </div>
+              )}
+              {!newBannerImage && (
+                <div className="w-full h-32 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2">
+                  <Image className="w-8 h-8 text-slate-300" />
+                  <p className="text-[10px] text-slate-400 font-semibold">Nhập URL ảnh bên dưới để xem trước banner</p>
+                </div>
+              )}
+
+              {/* Tiêu đề (Tùy chọn) */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Tiêu đề Banner (Tùy chọn)</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: Siêu ưu đãi Hè 2026 (Hoặc để trống)"
+                  value={newBannerTitle}
+                  onChange={(e) => setNewBannerTitle(e.target.value)}
+                  className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all placeholder-[#94A3B8]"
+                />
+              </div>
+
+              {/* URL ảnh & Vị trí */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Link Ảnh (URL) *</label>
+                    <label className="cursor-pointer text-[10px] font-extrabold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors shadow-xs">
+                      <UploadCloud className={`w-3.5 h-3.5 ${uploadingBannerImage ? 'animate-bounce' : ''}`} />
+                      <span>{uploadingBannerImage ? 'Đang tải...' : '📁 Từ máy tính'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingBannerImage}
+                        onChange={(e) => handleBannerFileUpload(e, false)}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://... hoặc chọn ảnh từ máy"
+                    value={newBannerImage}
+                    onChange={(e) => setNewBannerImage(e.target.value)}
+                    className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/20 transition-all placeholder-[#94A3B8]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Vị trí hiển thị *</label>
+                  <select
+                    value={newBannerPosition}
+                    onChange={(e: any) => setNewBannerPosition(e.target.value)}
+                    className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-bold text-[#1E293B] focus:outline-none focus:border-[#2563EB] cursor-pointer"
+                  >
+                    <option value="HOME_HERO">🏠 HOME HERO</option>
+                    <option value="HOME_SIDEBAR">📌 HOME SIDEBAR</option>
+                    <option value="SEARCH_BANNER">🔍 SEARCH BANNER</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Link khi bấm */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Đường dẫn khi nhấn vào Banner (Tùy chọn)</label>
+                <input
+                  type="text"
+                  placeholder="Ví dụ: /search?discount=true hoặc để trống"
+                  value={newBannerLink}
+                  onChange={(e) => setNewBannerLink(e.target.value)}
+                  className="w-full bg-white border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B] focus:outline-none focus:border-[#2563EB] transition-all placeholder-[#94A3B8]"
+                />
+              </div>
+
+              {/* Thông tin nhắc nhở */}
+              <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                <Info className="w-4 h-4 text-[#2563EB] mt-0.5 shrink-0" />
+                <p className="text-[10px] text-[#2563EB] font-semibold leading-relaxed">
+                  Banner mới sẽ được kích hoạt ngay và hiển thị ở đầu danh sách. Bạn có thể ẩn/hiện hoặc chỉnh sửa bất kỳ lúc nào.
+                </p>
+              </div>
+
+            </div>
+
+            {/* Footer buttons */}
+            <div className="flex gap-2 justify-end pt-4 border-t border-[#E2E8F0] shrink-0 mt-4">
+              <button
+                type="button"
+                onClick={() => { setShowAddBannerModal(false); setNewBannerTitle(''); setNewBannerImage(''); setNewBannerLink(''); setNewBannerPosition('HOME_HERO'); }}
+                className="px-4 py-2.5 bg-white border border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC] rounded-xl text-xs font-bold transition-all shadow-sm"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Đăng Banner
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* EDIT BANNER MODAL */}
+      {showEditBannerModal && editingBanner && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-lg space-y-4 text-[#1E293B]">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-[#0F172A]">Chỉnh Sửa Banner Quảng Cáo</h3>
+              <button onClick={() => setShowEditBannerModal(false)} className="text-slate-400 hover:text-slate-600 font-black">✕</button>
+            </div>
+            <form onSubmit={handleUpdateBanner} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Tiêu đề Banner (Tùy chọn)</label>
+                <input
+                  type="text"
+                  placeholder="Hoặc để trống"
+                  value={editingBanner.title || ''}
+                  onChange={(e) => setEditingBanner({ ...editingBanner, title: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Link Đường dẫn Ảnh (URL) *</label>
+                  <label className="cursor-pointer text-[10px] font-extrabold text-[#2563EB] hover:text-[#1D4ED8] flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors shadow-xs">
+                    <UploadCloud className={`w-3.5 h-3.5 ${uploadingBannerImage ? 'animate-bounce' : ''}`} />
+                    <span>{uploadingBannerImage ? 'Đang tải...' : '📁 Từ máy tính'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={uploadingBannerImage}
+                      onChange={(e) => handleBannerFileUpload(e, true)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                <input
+                  type="url"
+                  required
+                  value={editingBanner.imageUrl || ''}
+                  onChange={(e) => setEditingBanner({ ...editingBanner, imageUrl: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Đường dẫn liên kết (Tùy chọn)</label>
+                <input
+                  type="text"
+                  value={editingBanner.linkUrl || ''}
+                  onChange={(e) => setEditingBanner({ ...editingBanner, linkUrl: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Vị trí hiển thị *</label>
+                <select
+                  value={editingBanner.position || 'HOME_HERO'}
+                  onChange={(e: any) => setEditingBanner({ ...editingBanner, position: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-bold text-[#1E293B]"
+                >
+                  <option value="HOME_HERO">HOME HERO (Trang chủ chính)</option>
+                  <option value="HOME_SIDEBAR">HOME SIDEBAR (Thanh bên)</option>
+                  <option value="SEARCH_BANNER">SEARCH BANNER (Trang tìm kiếm)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setShowEditBannerModal(false)}
+                  className="px-4 py-2 bg-white border border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC] rounded-xl text-xs font-bold"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold"
+                >
+                  Cập Nhật Banner
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD CATEGORY MODAL */}
+      {showAddCategoryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-md space-y-4 text-[#1E293B]">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-[#0F172A]">Thêm Danh Mục Lưu Trú Mới</h3>
+              <button onClick={() => setShowAddCategoryModal(false)} className="text-slate-400 hover:text-slate-600 font-black">✕</button>
+            </div>
+            <form onSubmit={handleCreateCategory} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Tên Danh Mục *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Villa Biệt Thự Biển"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Hình ảnh đại diện (URL)</label>
+                <input
+                  type="url"
+                  placeholder="https://images.unsplash.com/..."
+                  value={newCatImage}
+                  onChange={(e) => setNewCatImage(e.target.value)}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Mô tả ngắn</label>
+                <textarea
+                  rows={2}
+                  placeholder="Mô tả không gian và phong cách của loại hình..."
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCategoryModal(false)}
+                  className="px-4 py-2 bg-white border border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC] rounded-xl text-xs font-bold"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold"
+                >
+                  Lưu Danh Mục
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CATEGORY MODAL */}
+      {showEditCategoryModal && editingCategory && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-md space-y-4 text-[#1E293B]">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-[#0F172A]">Chỉnh Sửa Danh Mục Lưu Trú</h3>
+              <button onClick={() => setShowEditCategoryModal(false)} className="text-slate-400 hover:text-slate-600 font-black">✕</button>
+            </div>
+            <form onSubmit={handleUpdateCategory} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Tên Danh Mục *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingCategory.name || ''}
+                  onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Hình ảnh đại diện (URL)</label>
+                <input
+                  type="url"
+                  value={editingCategory.imageUrl || ''}
+                  onChange={(e) => setEditingCategory({ ...editingCategory, imageUrl: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Mô tả ngắn</label>
+                <textarea
+                  rows={2}
+                  value={editingCategory.description || ''}
+                  onChange={(e) => setEditingCategory({ ...editingCategory, description: e.target.value })}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setShowEditCategoryModal(false)}
+                  className="px-4 py-2 bg-white border border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC] rounded-xl text-xs font-bold"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold"
+                >
+                  Cập Nhật Danh Mục
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+
+      {/* ADD AMENITY MODAL */}
+      {showAddAmenityModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E2E8F0] p-6 rounded-2xl shadow-2xl w-full max-w-sm space-y-4 text-[#1E293B]">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-extrabold text-sm text-[#0F172A]">Thêm Tiện Ích Mới</h3>
+              <button onClick={() => setShowAddAmenityModal(false)} className="text-slate-400 hover:text-slate-600 font-black">✕</button>
+            </div>
+            <form onSubmit={handleCreateAmenity} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-[#64748B] uppercase">Tên Tiện Ích *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ví dụ: Bãi đỗ xe ô tô, Hồ bơi vô cực"
+                  value={newAmenityName}
+                  onChange={(e) => setNewAmenityName(e.target.value)}
+                  className="w-full bg-slate-50 border border-[#CBD5E1] rounded-xl p-2.5 text-xs font-semibold text-[#1E293B]"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-3 border-t border-[#E2E8F0]">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAmenityModal(false)}
+                  className="px-4 py-2 bg-white border border-[#CBD5E1] text-[#334155] hover:bg-[#F8FAFC] rounded-xl text-xs font-bold"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-xs font-extrabold"
+                >
+                  Thêm Tiện Ích
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
 
     </div>
   );

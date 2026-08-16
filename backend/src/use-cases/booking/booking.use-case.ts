@@ -1,8 +1,7 @@
 import prisma from '../../config/database';
 import { AppError } from '../../infrastructure/middlewares/error.middleware';
 import { BookingStatus } from '@prisma/client';
-import couponUseCase from '../coupon/coupon.use-case';
-import loyaltyUseCase from '../user/loyalty.use-case';
+import { couponUseCase, loyaltyUseCase, cmsUseCase } from '../../config/container';
 import socketService from '../../infrastructure/services/socket.service';
 import auditService from '../../infrastructure/services/audit.service';
 import PaymentService from '../../infrastructure/services/payment.service';
@@ -258,6 +257,10 @@ export class BookingUseCase {
 
     const finalPrice = totalPrice - discountAmount - pointsDiscountVal + (insuranceSelected ? 43500 : 0);
 
+    const commissionRate = cmsUseCase.getSettings().commissionRate || 10;
+    const commissionAmount = Number((finalPrice * (commissionRate / 100)).toFixed(2));
+    const ownerNetAmount = Number((finalPrice - commissionAmount).toFixed(2));
+
     // --- 3. Tạo đơn Booking trong Database sử dụng Transaction ---
     const booking = await prisma.$transaction(async (tx) => {
       // 3.1. Tạo đơn Đặt phòng
@@ -269,6 +272,11 @@ export class BookingUseCase {
           totalPrice,
           discountAmount,
           finalPrice,
+          commissionRate,
+          commissionAmount,
+          ownerNetAmount,
+          refundAmount: 0,
+          payoutStatus: 'PENDING',
           pointsUsed: pointsUsedVal,
           pointsDiscount: pointsDiscountVal,
           status: BookingStatus.PENDING,
@@ -350,6 +358,20 @@ export class BookingUseCase {
     socketService.emitBookingStatusUpdate(booking.id, BookingStatus.PENDING).catch(err => {
       console.error('[Create Booking Socket Error]:', err);
     });
+
+    // Gửi email xác nhận đặt phòng kèm vé QR Code cho người dùng
+    if (booking.guestEmail) {
+      mailService.sendBookingTicketEmail({
+        email: booking.guestEmail,
+        guestName: booking.guestName,
+        bookingId: booking.id,
+        hotelName: firstRoomType.hotel.name || 'Khách sạn của chúng tôi',
+        roomTypeName: firstRoomType.name || 'Phòng nghỉ',
+        checkInDate: booking.checkInDate,
+        checkOutDate: booking.checkOutDate,
+        finalPrice: Number(booking.finalPrice)
+      }).catch(err => console.error('[CreateBooking Mail Error]:', err));
+    }
 
     return booking;
   }

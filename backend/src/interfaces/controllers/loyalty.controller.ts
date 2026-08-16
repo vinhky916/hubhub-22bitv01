@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../infrastructure/middlewares/auth.middleware';
-import loyaltyUseCase from '../../use-cases/user/loyalty.use-case';
+import { loyaltyUseCase } from '../../config/container';
 
 export class LoyaltyController {
   public async getSummary(req: AuthenticatedRequest, res: Response, next: NextFunction) {

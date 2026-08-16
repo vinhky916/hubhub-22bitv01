@@ -76,6 +76,7 @@ app.get('/health', (req, res) => {
 
 import ratePlanRoutes from './interfaces/routes/rate-plan.routes';
 import staffRoutes from './interfaces/routes/staff.routes';
+import cmsRoutes from './interfaces/routes/cms.routes';
 
 // Định tuyến API các modules
 app.use('/api/auth', authRoutes);
@@ -88,6 +89,8 @@ app.use('/api/chats', chatRoutes);
 app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/rate-plans', ratePlanRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/cms', cmsRoutes);
+
 
 
 

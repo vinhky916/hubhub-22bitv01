@@ -1,23 +1,14 @@
 import nodemailer from 'nodemailer';
-import { Resend } from 'resend';
 import QRCode from 'qrcode';
 
 export class MailService {
   private transporter: nodemailer.Transporter;
-  private resend: Resend | null = null;
 
   constructor() {
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (resendApiKey && resendApiKey.trim() !== '') {
-      this.resend = new Resend(resendApiKey.trim());
-      console.log('[MailService] Resend API initialized successfully.');
-    } else {
-      console.log('[MailService] RESEND_API_KEY not found or empty. Falling back to SMTP Transporter.');
-    }
-
-    const isEthereal = process.env.EMAIL_USER === 'placeholder@ethereal.email' || !process.env.EMAIL_USER;
+    const isPlaceholder = !process.env.EMAIL_USER || process.env.EMAIL_USER.includes('placeholder');
     
-    if (isEthereal) {
+    if (isPlaceholder) {
+      console.log('[MailService] EMAIL_USER chưa được cấu hình hoặc là placeholder. Sử dụng Ethereal SMTP làm giả lập thử nghiệm.');
       this.transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
         port: 587,
@@ -28,10 +19,20 @@ export class MailService {
         }
       });
     } else {
+      let host = process.env.EMAIL_HOST || 'smtp.gmail.com';
+      // Nếu EMAIL_HOST nạp nhầm 'smtp.ethereal.email' nhưng EMAIL_USER là email thật (vd: @nttu.edu.vn hay @gmail.com) -> Auto sửa sang 'smtp.gmail.com'
+      if (host === 'smtp.ethereal.email' && process.env.EMAIL_USER && !process.env.EMAIL_USER.includes('ethereal')) {
+        host = 'smtp.gmail.com';
+      }
+
+      const port = parseInt(process.env.EMAIL_PORT || '587');
+      const secure = port === 465;
+
+      console.log(`[MailService] Khởi tạo Nodemailer SMTP Transporter: ${host}:${port} (${process.env.EMAIL_USER})`);
       this.transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: parseInt(process.env.EMAIL_PORT || '587'),
-        secure: process.env.EMAIL_PORT === '465',
+        host,
+        port,
+        secure,
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
@@ -41,10 +42,17 @@ export class MailService {
   }
 
   private getFromEmail(defaultLabel = 'Cloud Booking Support'): string {
-    if (this.resend) {
-      return process.env.RESEND_FROM_EMAIL || 'Cloud Booking <onboarding@resend.dev>';
+    if (process.env.EMAIL_USER && process.env.EMAIL_USER.trim() !== '' && !process.env.EMAIL_USER.includes('placeholder')) {
+      // Khi dùng Gmail/Google Workspace SMTP, từ địa chỉ gửi phải trùng khớp với tài khoản xác thực
+      if (process.env.EMAIL_FROM && process.env.EMAIL_FROM.includes(process.env.EMAIL_USER)) {
+        return process.env.EMAIL_FROM.trim();
+      }
+      return `"${defaultLabel}" <${process.env.EMAIL_USER.trim()}>`;
     }
-    return `"${defaultLabel}" <${process.env.EMAIL_FROM || 'no-reply@cloudbooking.com'}>`;
+    if (process.env.EMAIL_FROM && process.env.EMAIL_FROM.trim() !== '') {
+      return process.env.EMAIL_FROM.trim();
+    }
+    return `"${defaultLabel}" <no-reply@cloudbooking.com>`;
   }
 
   private formatDateVN(dateInput: Date | string): string {
@@ -70,49 +78,47 @@ export class MailService {
       </div>
     `;
 
+    // In mã OTP ra Console log của Server để hỗ trợ thử nghiệm trực tiếp
+    console.log('\n==================================================');
+    console.log(`🔑 [DEV / SERVER LOG] MÃ OTP XÁC THỰC DÀNH CHO EMAIL: ${to}`);
+    console.log(`👉  MÃ OTP XÁC THỰC:  [ ${otp} ]  👈`);
+    console.log('==================================================\n');
+
     try {
-      if (this.resend) {
-        const res = await this.resend.emails.send({ from, to: [to], subject, html });
-        console.log(`[MailService via Resend]: OTP sent to ${to}. ID: ${res.data?.id}`);
-      } else {
-        const info = await this.transporter.sendMail({ from, to, subject, html });
-        console.log(`[MailService via SMTP]: OTP sent to ${to}. MessageId: ${info.messageId}`);
-      }
-    } catch (error) {
-      console.error('[MailService Error]: Failed to send OTP:', error);
-      throw error;
+      const info = await this.transporter.sendMail({ from, to, subject, html });
+      console.log(`[MailService via Nodemailer]: Gửi OTP thành công tới ${to}. MessageId: ${info.messageId}`);
+    } catch (error: any) {
+      console.error(`[MailService via Nodemailer Error] Lỗi gửi OTP đến ${to}:`, error?.message || error);
     }
   }
 
-  public async sendResetPassword(to: string, token: string, name: string): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+  public async sendResetPassword(to: string, otp: string, name: string): Promise<void> {
     const from = this.getFromEmail('Cloud Booking Support');
-    const subject = 'Yêu Cầu Khôi Phục Mật Khẩu - Cloud Booking Platform';
+    const subject = 'Mã OTP Khôi Phục Mật Khẩu - Cloud Booking Platform';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #f8fafc;">
-        <h2 style="color: #2563eb; text-align: center;">Khôi phục mật khẩu</h2>
+        <h2 style="color: #2563eb; text-align: center;">Khôi Phục Mật Khẩu</h2>
         <p>Xin chào <strong>${name}</strong>,</p>
-        <p>Bạn đã gửi yêu cầu khôi phục mật khẩu. Vui lòng nhấp vào liên kết bên dưới để tiến hành đổi mật khẩu mới:</p>
+        <p>Bạn đã gửi yêu cầu khôi phục mật khẩu. Dưới đây là mã OTP 6 chữ số để xác thực đặt lại mật khẩu mới:</p>
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${resetUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px; display: inline-block;">Khôi phục mật khẩu</a>
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #2563eb; background-color: #eff6ff; padding: 10px 30px; border-radius: 8px; border: 1px dashed #bfdbfe;">${otp}</span>
         </div>
-        <p style="color: #64748b; font-size: 14px;">Lưu ý: Đường dẫn này có hiệu lực trong vòng 15 phút. Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua email.</p>
+        <p style="color: #64748b; font-size: 14px;">Lưu ý: Mã OTP này có hiệu lực trong vòng 15 phút. Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>
         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
         <p style="font-size: 12px; color: #94a3b8; text-align: center;">© 2026 Cloud Booking Platform. All rights reserved.</p>
       </div>
     `;
 
+    console.log('\n==================================================');
+    console.log(`🔑 [DEV / SERVER LOG] MÃ OTP RESET MẬT KHẨU DÀNH CHO EMAIL: ${to}`);
+    console.log(`👉  MÃ OTP KHÔI PHỤC:  [ ${otp} ]  👈`);
+    console.log('==================================================\n');
+
     try {
-      if (this.resend) {
-        const res = await this.resend.emails.send({ from, to: [to], subject, html });
-        console.log(`[MailService via Resend]: Reset token sent to ${to}. ID: ${res.data?.id}`);
-      } else {
-        const info = await this.transporter.sendMail({ from, to, subject, html });
-        console.log(`[MailService via SMTP]: Reset token sent to ${to}. MessageId: ${info.messageId}`);
-      }
-    } catch (error) {
-      console.error('[MailService Error]: Failed to send reset password email:', error);
-      throw error;
+      const info = await this.transporter.sendMail({ from, to, subject, html });
+      console.log(`[MailService via Nodemailer]: Gửi OTP Reset Password thành công tới ${to}. MessageId: ${info.messageId}`);
+    } catch (error: any) {
+      console.error(`[MailService via Nodemailer Error] Lỗi gửi OTP Reset Password đến ${to}:`, error?.message || error);
     }
   }
 
@@ -132,8 +138,6 @@ export class MailService {
       width: 250,
       margin: 1,
     });
-    const qrBase64 = qrBuffer.toString('base64');
-    const qrDataUrl = `data:image/png;base64,${qrBase64}`;
 
     const from = this.getFromEmail('Cloud Booking Confirmation');
     const subject = `Xác Nhận Đặt Phòng Thành Công: ${params.hotelName}`;
@@ -158,7 +162,7 @@ export class MailService {
         <div style="text-align: center; border: 1px dashed #bfdbfe; background-color: #eff6ff; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
           <h4 style="color: #1e40af; margin-top: 0; margin-bottom: 8px;">VÉ ĐIỆN TỬ CHECK-IN</h4>
           <p style="color: #1e40af; font-size: 12px; margin-bottom: 12px;">Vui lòng đưa mã QR này cho nhân viên lễ tân khi nhận phòng để làm thủ tục nhanh chóng</p>
-          <img src="${qrDataUrl}" alt="QR Code Check-in" style="width: 180px; height: 180px; display: inline-block; background-color: white; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px;" />
+          <img src="cid:qrcode_ticket" alt="QR Code Check-in" style="width: 180px; height: 180px; display: inline-block; background-color: white; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px;" />
         </div>
 
         <p style="color: #64748b; font-size: 12px; text-align: center;">Nếu cần hỗ trợ gấp hoặc hủy phòng theo quy định, vui lòng truy cập trang cá nhân hoặc liên hệ Hotline: 1900-xxxx.</p>
@@ -168,39 +172,22 @@ export class MailService {
     `;
 
     try {
-      if (this.resend) {
-        const res = await this.resend.emails.send({
-          from,
-          to: [params.email],
-          subject,
-          html,
-          attachments: [
-            {
-              filename: 'qrcode.png',
-              content: qrBuffer,
-            }
-          ]
-        });
-        console.log(`[MailService via Resend]: Ticket email sent to ${params.email}. ID: ${res.data?.id}`);
-      } else {
-        const info = await this.transporter.sendMail({
-          from,
-          to: params.email,
-          subject,
-          html,
-          attachments: [
-            {
-              filename: 'qrcode.png',
-              content: qrBuffer,
-              cid: 'qrcode_ticket',
-            },
-          ],
-        });
-        console.log(`[MailService via SMTP]: Ticket email sent to ${params.email}. MessageId: ${info.messageId}`);
-      }
-    } catch (error) {
-      console.error('[MailService Error]: Failed to send booking confirmation email:', error);
-      throw error;
+      const info = await this.transporter.sendMail({
+        from,
+        to: params.email,
+        subject,
+        html,
+        attachments: [
+          {
+            filename: 'qrcode.png',
+            content: qrBuffer,
+            cid: 'qrcode_ticket',
+          },
+        ],
+      });
+      console.log(`[MailService via Nodemailer]: Gửi vé đặt phòng thành công tới ${params.email}. MessageId: ${info.messageId}`);
+    } catch (smtpErr: any) {
+      console.error(`[MailService via Nodemailer Error] Lỗi gửi vé đến ${params.email}:`, smtpErr?.message || smtpErr);
     }
   }
 
@@ -271,15 +258,10 @@ export class MailService {
     `;
 
     try {
-      if (this.resend) {
-        const res = await this.resend.emails.send({ from, to: [params.email], subject, html });
-        console.log(`[MailService via Resend]: Status update email sent to ${params.email}. ID: ${res.data?.id}`);
-      } else {
-        const info = await this.transporter.sendMail({ from, to: params.email, subject, html });
-        console.log(`[MailService via SMTP]: Status update email sent to ${params.email}. MessageId: ${info.messageId}`);
-      }
-    } catch (error) {
-      console.error('[MailService Error]: Failed to send status update email:', error);
+      const info = await this.transporter.sendMail({ from, to: params.email, subject, html });
+      console.log(`[MailService via Nodemailer]: Gửi mail cập nhật trạng thái thành công tới ${params.email}. MessageId: ${info.messageId}`);
+    } catch (smtpErr: any) {
+      console.error(`[MailService via Nodemailer Error] Lỗi gửi mail cập nhật trạng thái đến ${params.email}:`, smtpErr?.message || smtpErr);
     }
   }
 }

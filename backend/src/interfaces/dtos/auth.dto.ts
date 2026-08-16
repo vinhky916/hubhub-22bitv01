@@ -29,7 +29,11 @@ export const loginSchema = z.object({
 export const verifyEmailSchema = z.object({
   body: z.object({
     email: z.string().email('Email không đúng định dạng'),
-    otpCode: z.string().length(6, 'Mã OTP phải có độ dài đúng 6 ký tự'),
+    otpCode: z.string().optional(),
+    otp: z.string().optional(),
+  }).refine((data) => (data.otpCode && data.otpCode.length === 6) || (data.otp && data.otp.length === 6), {
+    message: 'Mã OTP phải có độ dài đúng 6 ký tự',
+    path: ['otpCode'],
   }),
 });
 
@@ -41,7 +45,9 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   body: z.object({
-    token: z.string().min(1, 'Token không được để trống'),
+    email: z.string().email('Email không đúng định dạng').optional(),
+    otpCode: z.string().optional(),
+    token: z.string().optional(),
     password: z
       .string()
       .min(6, 'Mật khẩu phải tối thiểu 6 ký tự')

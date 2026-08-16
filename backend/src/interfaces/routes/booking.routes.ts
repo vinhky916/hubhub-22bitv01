@@ -13,6 +13,7 @@ router.post('/', requireAuth, validateRequest(createBookingSchema), bookingContr
 
 // Route thống kê cho quản trị viên và đối tác chủ phòng
 router.get('/admin-stats', requireAuth, requireRole([Role.ADMIN]), statsController.getAdminStats);
+router.get('/system-hotel-stats', requireAuth, requireRole([Role.ADMIN]), statsController.getSystemHotelStats);
 router.get('/owner-stats', requireAuth, requireRole([Role.HOTEL_OWNER]), statsController.getOwnerStats);
 
 // Các route xem lịch sử và quản lý đơn vẫn yêu cầu xác thực người dùng

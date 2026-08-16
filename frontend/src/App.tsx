@@ -23,6 +23,8 @@ import Wishlist from './pages/Wishlist';
 import BecomePartner from './pages/BecomePartner';
 import LoginSuccess from './pages/LoginSuccess';
 import Profile from './pages/Profile';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // --- Component tự động kiểm tra Session (Auto Login) khi load trang ---
 const AuthInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -122,6 +124,8 @@ const AppContent: React.FC = () => {
               <Route path="/hotel/:id" element={<HotelDetail />} />
               <Route path="/login" element={<Login />} />
               <Route path="/login-success" element={<LoginSuccess />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register/owner" element={<RegisterOwner />} />
               <Route path="/profile" element={<Profile />} />

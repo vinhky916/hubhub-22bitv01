@@ -17,6 +17,7 @@ const router = Router();
 router.post('/register', validateRequest(registerSchema), authController.register);
 router.post('/verify-email', validateRequest(verifyEmailSchema), authController.verifyEmail);
 router.post('/resend-otp', authController.resendOTP);
+router.post('/check-otp', authController.checkOTP);
 router.post('/login', validateRequest(loginSchema), authController.login);
 router.post('/refresh-token', authController.refresh);
 router.post('/logout', authController.logout);

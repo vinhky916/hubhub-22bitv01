@@ -163,7 +163,7 @@ export const Login: React.FC = () => {
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mật khẩu</label>
-                <Link to="#" className="text-[10px] text-primary font-bold hover:underline">Quên mật khẩu?</Link>
+                <Link to="/forgot-password" className="text-[10px] text-primary font-bold hover:underline">Quên mật khẩu?</Link>
               </div>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-3.5 text-slate-400 w-4 h-4" />

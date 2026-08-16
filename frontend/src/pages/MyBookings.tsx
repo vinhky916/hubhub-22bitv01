@@ -9,8 +9,8 @@ import { useModal } from '../components/common/ModalContext';
 import socket from '../core/socket/socket';
 import { 
   Calendar, MapPin, QrCode, CreditCard, Clock, CheckCircle2, AlertTriangle,
-  Eye, Users, Building2, Phone, Mail, FileText, X, Check, ArrowRight,
-  PhoneCall, MessageSquare, Navigation, HelpCircle, Send, Sparkles
+  Eye, Users, Building2, Phone, Mail, X, ArrowRight,
+  PhoneCall, MessageSquare, Navigation, Send, Sparkles
 } from 'lucide-react';
 
 interface BookingItem {

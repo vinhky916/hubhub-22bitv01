@@ -1,6 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../../infrastructure/middlewares/auth.middleware';
-import staffUseCase from '../../use-cases/staff/staff.use-case';
+import { staffUseCase } from '../../config/container';
 
 export class StaffController {
   // OWNER: Tạo tài khoản nhân viên

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import couponUseCase from '../../use-cases/coupon/coupon.use-case';
+import { couponUseCase } from '../../config/container';
 import { AuthenticatedRequest } from '../../infrastructure/middlewares/auth.middleware';
 
 export class CouponController {

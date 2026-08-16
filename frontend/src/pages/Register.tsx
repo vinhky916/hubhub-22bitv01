@@ -19,6 +19,34 @@ export const Register: React.FC = () => {
   const [otp, setOtp] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
+  const [otpChecking, setOtpChecking] = useState(false);
+  const [otpValid, setOtpValid] = useState<boolean | null>(null);
+
+  const handleOtpInputChange = async (val: string) => {
+    const cleanVal = val.toUpperCase().replace(/\s/g, '');
+    setOtp(cleanVal);
+    setOtpError('');
+    setOtpValid(null);
+
+    if (cleanVal.length === 6) {
+      setOtpChecking(true);
+      try {
+        const res = await apiClient.post('/auth/check-otp', { email, otpCode: cleanVal });
+        if (res.data.success && res.data.data?.valid) {
+          setOtpValid(true);
+        } else {
+          setOtpValid(false);
+          setOtpError(res.data.data?.message || 'Mã OTP không chính xác');
+        }
+      } catch {
+        setOtpValid(false);
+      } finally {
+        setOtpChecking(false);
+      }
+    }
+  };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,8 +63,7 @@ export const Register: React.FC = () => {
       });
 
       if (res.data.success) {
-        await showAlert('Đăng ký tài khoản thành công! Bạn có thể tiến hành đăng nhập.', { type: 'success', title: 'Đăng ký thành công' });
-        navigate('/login');
+        setShowOtpModal(true);
       } else {
         setError(res.data.message || 'Đăng ký thất bại');
       }
@@ -48,9 +75,29 @@ export const Register: React.FC = () => {
     }
   };
 
+  const handleResendOtp = async () => {
+    setOtpError('');
+    setResendMessage('');
+    setResendLoading(true);
+    try {
+      const res = await apiClient.post('/auth/resend-otp', { email });
+      if (res.data.success) {
+        setResendMessage('Mã OTP mới đã được gửi tới email của bạn.');
+      } else {
+        setOtpError(res.data.message || 'Không thể gửi lại mã OTP');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setOtpError(err.response?.data?.message || 'Không thể gửi lại mã OTP. Vui lòng thử lại sau.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   const handleOtpVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError('');
+    setResendMessage('');
     setOtpLoading(true);
 
     try {
@@ -226,28 +273,79 @@ export const Register: React.FC = () => {
             </div>
 
             {otpError && (
-              <div className="bg-red-50 text-red-700 p-2 rounded text-[11px] font-semibold">
-                {otpError}
+              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-xs font-semibold text-left flex items-start gap-2">
+                <span className="text-red-500 font-bold">⚠️</span>
+                <div>
+                  <div className="font-bold">{otpError}</div>
+                  <div className="text-[10px] text-red-500 font-medium mt-0.5">Vui lòng kiểm tra lại Hộp thư đến/Spam hoặc nhấn Gửi lại OTP.</div>
+                </div>
+              </div>
+            )}
+
+            {resendMessage && (
+              <div className="bg-green-50 text-green-700 p-2 rounded text-[11px] font-semibold">
+                {resendMessage}
               </div>
             )}
 
             <form onSubmit={handleOtpVerify} className="space-y-4">
-              <input
-                type="text"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.toUpperCase())}
-                placeholder="Nhập 6 ký tự OTP"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg py-2.5 text-center text-lg font-bold letter-spacing-4 focus:outline-none focus:border-primary focus:bg-white"
-              />
+              <div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={otp}
+                    onChange={(e) => handleOtpInputChange(e.target.value)}
+                    placeholder="Nhập 6 ký tự OTP"
+                    className={`w-full border rounded-xl py-3 text-center text-xl font-bold letter-spacing-4 font-mono focus:outline-none transition-all ${
+                      otpValid === true 
+                        ? 'border-green-500 bg-green-50/50 text-green-900 ring-2 ring-green-400/20' 
+                        : otpValid === false 
+                        ? 'border-red-500 bg-red-50/50 text-red-900 ring-2 ring-red-400/20' 
+                        : 'bg-slate-50 border-slate-200 focus:border-primary focus:bg-white text-slate-700'
+                    }`}
+                  />
+                  {otpValid === true && (
+                    <div className="absolute right-3.5 top-3.5 text-green-600 animate-in zoom-in">
+                      <CheckCircle className="w-5 h-5" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-between items-center text-[11px] font-medium pt-1.5 px-1">
+                  <span className="text-slate-400">Đã nhập: {otp.length}/6 ký tự</span>
+                  {otpChecking && (
+                    <span className="text-primary font-bold animate-pulse">⏳ Đang đối chiếu với Server...</span>
+                  )}
+                  {!otpChecking && otpValid === true && (
+                    <span className="text-green-600 font-bold flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5" /> Mã OTP khớp chính xác
+                    </span>
+                  )}
+                  {!otpChecking && otpValid === false && (
+                    <span className="text-red-600 font-bold">❌ Mã OTP không khớp</span>
+                  )}
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={otpLoading || otp.length < 6}
-                className="w-full bg-primary hover:bg-primary-dark disabled:bg-slate-250 text-white font-bold text-xs py-2.5 rounded-premium transition-colors"
+                className="w-full bg-primary hover:bg-primary-dark disabled:bg-slate-250 text-white font-bold text-xs py-3 rounded-premium transition-colors"
               >
-                {otpLoading ? 'Đang kiểm duyệt...' : 'Xác thực OTP'}
+                {otpLoading ? 'Đang kiểm tra mã OTP...' : 'Xác thực OTP'}
               </button>
             </form>
+
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={resendLoading}
+                className="text-xs text-primary font-bold hover:underline disabled:text-slate-300"
+              >
+                {resendLoading ? 'Đang gửi lại OTP...' : 'Chưa nhận được mã? Gửi lại OTP'}
+              </button>
+            </div>
           </div>
         </div>
       )}
