@@ -28,7 +28,7 @@
 
 | Trang Chủ & AI Search Assistant | Chi Tiết Khách Sạn & Chọn Phòng |
 |---|---|
-| <img width="647" height="414" alt="image" src="https://github.com/user-attachments/assets/a1e211da-5f2e-4c55-bcc3-d77a206b22f0" />|<img width="881"height="496" alt="image" src="https://github.com/user-attachments/assets/03f56e05-08d5-4131-ad84-add544891f43" />|
+| <img width="647" height="414" alt="image" src="https://github.com/user-attachments/assets/a1e211da-5f2e-4c55-bcc3-d77a206b22f0" />| <img width="881" height="496" alt="image" src="https://github.com/user-attachments/assets/26a4381e-a6eb-4b9b-95cf-629b4a3f38b2" />|
 
 | Dashboard Quản Lý Lịch Giá Động (Owner) | Bản Đồ Tương Tác & Địa Điểm |
 |---|---|
